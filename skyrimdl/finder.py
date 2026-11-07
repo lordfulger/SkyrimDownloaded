@@ -281,7 +281,7 @@ def walk_for_targets(roots: list[Path], *, max_depth: int = 5, budget: float = 6
     seen: set[str] = set()
     last_report = 0.0
     while queue:
-        if time.monotonic() > deadline:
+        if time.monotonic() >= deadline:
             return hits, True
         folder, depth = queue.popleft()
         key = _norm(folder)

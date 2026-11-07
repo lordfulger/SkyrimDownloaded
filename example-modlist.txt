@@ -1,0 +1,16 @@
+# SkyrimDownloaded example list - Skyrim Special / Anniversary Edition
+# One link per line. Text after " #" is a note. "| choice" answers a mod's options ahead of time.
+
+# ---- Essentials ----
+https://www.nexusmods.com/skyrimspecialedition/mods/30379    # SKSE64 (the script extender itself is on Nexus too)
+https://www.nexusmods.com/skyrimspecialedition/mods/32444    # Address Library for SKSE Plugins
+https://www.nexusmods.com/skyrimspecialedition/mods/17230    # SSE Engine Fixes (part 2 is a separate download - you'll be told)
+https://www.nexusmods.com/skyrimspecialedition/mods/266      # Unofficial Skyrim Special Edition Patch
+
+# ---- Interface ----
+https://www.nexusmods.com/skyrimspecialedition/mods/12604 | primary   # SkyUI - just the main file
+
+# ---- Try the choices ----
+# 34705 | ask                    # always show the options for this one
+# 12604 | file=123456            # one exact file ID
+# 12345 | match=2K               # files with "2K" in the name

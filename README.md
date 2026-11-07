@@ -89,7 +89,7 @@ To answer a mod's options ahead of time, add `|` and a choice after the link:
 | `\| primary` | Just the main file Nexus marks as primary. Never asks. |
 | `\| main` | Every file in the *Main files* section |
 | `\| all` | Every main, update, optional and misc file |
-| `\| match=2K` | Files whose name contains "2K". Use it more than once to match several (`match=2K, match=Patch`). |
+| `\| match=2K` | Files whose name contains "2K". Use it more than once to match several (`match=2K, match=Patch`). Spaces are fine (`match=Pretty Textures 2K`); quote text that contains a choice word, e.g. `match="Main Menu"`. |
 | `\| file=123456,123457` | Exactly those file IDs (the number in a file's download link) |
 | `\| skip` | Leaves the mod out but keeps it in the list |
 

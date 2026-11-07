@@ -39,6 +39,40 @@ class ListError(ValueError):
     pass
 
 
+_MODE = r"(?:ask|primary|main|all|skip|auto)"
+_KEY_EQ = r"(?:files?|file_id|id|match)\s*="
+# Where one choice ends: a comma, the end, or another choice coming up
+# (a choice word only counts when something choice-like follows it).
+_NEXT = (r"(?:" + _KEY_EQ + r"|" + _MODE + r"(?:\s*(?:,|$)|\s+(?:" + _KEY_EQ + r"|" + _MODE + r")))")
+_RULE_TOKEN = re.compile(
+    r"[\s,]*(?P<key>[a-z_]+)"
+    r"(?:\s*=\s*(?P<value>\"[^\"]*\"|'[^']*'|\d+(?:\s*,\s*\d+)+|[^,\"']*?))?"
+    r"(?=\s*,|\s+" + _NEXT + r"|\s*$)",
+    re.IGNORECASE,
+)
+
+
+def _rule_tokens(text: str):
+    """Split "match=Pretty Textures 2K, file=12" into (key, value, token) parts.
+
+    Values may contain spaces; quote them if they contain a choice word
+    (``match="All in one"``).
+    """
+    pos, text = 0, text.strip()
+    while pos < len(text):
+        m = _RULE_TOKEN.match(text, pos)
+        if not m or m.end() == pos:
+            rest = text[pos:].strip(" ,")
+            if rest:
+                raise ListError(f"can't read the choice {rest!r}")
+            return
+        value = (m.group("value") or "").strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        yield m.group("key").lower(), value, m.group(0).strip(" ,")
+        pos = m.end()
+
+
 @dataclass
 class Rule:
     """How to pick files from a mod's Files tab.
@@ -64,13 +98,7 @@ class Rule:
     @classmethod
     def parse(cls, text: str) -> "Rule":
         rule = cls()
-        for token in re.split(r"[,\s]+(?=[a-z]+(?:=|$|[,\s]))", text.strip(), flags=re.I):
-            token = token.strip().strip(",")
-            if not token:
-                continue
-            key, _, value = token.partition("=")
-            key = key.strip().lower()
-            value = value.strip().strip('"').strip("'")
+        for key, value, token in _rule_tokens(text):
             if key in cls.MODES and not value:
                 rule.mode = key
             elif key in ("file", "files", "file_id", "id"):

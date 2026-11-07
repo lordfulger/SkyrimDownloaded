@@ -56,6 +56,10 @@ class LinkTests(unittest.TestCase):
         self.assertEqual(Rule.parse("match=2K, match=Performance").match, ["2K", "Performance"])
         r = Rule.parse("ask file=1,2")
         self.assertEqual((r.mode, r.file_ids), ("ask", [1, 2]))
+        self.assertEqual(Rule.parse("match=Pretty Textures 2K").match, ["Pretty Textures 2K"])
+        r = Rule.parse('match="All in one" primary')
+        self.assertEqual((r.match, r.mode), (["All in one"], "primary"))
+        self.assertEqual(Rule.parse("").mode, "auto")
         with self.assertRaises(ListError):
             Rule.parse("bogus")
         _, problems = parse_list("https://www.nexusmods.com/skyrimspecialedition/mods/1 | nope\n")

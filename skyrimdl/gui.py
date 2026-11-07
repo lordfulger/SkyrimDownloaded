@@ -20,7 +20,9 @@ from . import finder
 from . import theme as theme_mod
 from .managers import ManagerError, make_target
 from .nexus import NexusClient, NexusError
-from .selection import human_size, visible_options
+from . import gameversion
+from .engine import rechoose
+from .selection import annotate, for_other_versions, human_size, visible_options
 
 API_KEY_PAGE = "https://www.nexusmods.com/settings/api-keys"
 ON, OFF = "\u2611", "\u2610"  # ☑ ☐
@@ -138,6 +140,27 @@ class App:
         ttk.Label(found, textvariable=self.where_var, style="Muted.TLabel").pack(side="left", fill="x", padx=8)
         self.found: finder.Findings | None = None
 
+        game = ttk.Frame(mgr)
+        game.pack(fill="x", padx=6, pady=(0, 6))
+        ttk.Label(game, text="Your Skyrim:").pack(side="left")
+        self.version_var = tk.StringVar()
+        self.version_box = ttk.Combobox(game, textvariable=self.version_var, width=58,
+                                        values=[label for label, _ in gameversion.PRESETS])
+        self.version_box.pack(side="left", padx=6)
+        self.version_box.bind("<<ComboboxSelected>>", lambda e: self._version_changed())
+        self.version_box.bind("<Return>", lambda e: self._version_changed())
+        self.version_box.bind("<FocusOut>", lambda e: self._version_changed())
+        ttk.Label(game, text="from").pack(side="left")
+        self.store_var = tk.StringVar(value="Steam")
+        store_box = ttk.Combobox(game, textvariable=self.store_var, values=gameversion.STORES,
+                                 state="readonly", width=10)
+        store_box.pack(side="left", padx=6)
+        store_box.bind("<<ComboboxSelected>>", lambda e: self._version_changed())
+        self.detect_btn = ttk.Button(game, text="Detect", command=lambda: self.detect_game(quiet=False))
+        self.detect_btn.pack(side="left")
+        self.game_note_var = tk.StringVar(value="Files for other versions are left out.")
+        ttk.Label(game, textvariable=self.game_note_var, style="Muted.TLabel").pack(side="left", padx=8)
+
         # List
         lst = ttk.LabelFrame(outer, text="3. Mod list (Nexus links, nxm:// links or mod numbers, one per line)")
         lst.pack(fill="x", **pad)
@@ -163,6 +186,9 @@ class App:
         ttk.Button(tools, text="Choose options…", command=self.walk_choices).pack(side="left")
         ttk.Button(tools, text="Open mod page", command=self.open_page).pack(side="left", padx=4)
         self.old_var = tk.BooleanVar(value=False)
+        self.other_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(tools, text="Show files for other game versions", variable=self.other_var,
+                        command=self._fill_tree).pack(side="left", padx=8)
         ttk.Checkbutton(tools, text="Show old versions", variable=self.old_var,
                         command=self._fill_tree).pack(side="left", padx=8)
         self.plan_var = tk.StringVar()
@@ -223,6 +249,68 @@ class App:
         self.paths.columnconfigure(1, weight=1)
         self.install_check.configure(state="normal" if kind == "vortex" else "disabled")
         self._update_where()
+
+    # -- your game version ------------------------------------------------------
+
+    def _target_game(self) -> "gameversion.GameTarget":
+        text = self.version_var.get().strip()
+        version = next((v for label, v in gameversion.PRESETS if label == text), None)
+        if version is None:
+            version = text if gameversion.parse_version(text) else ""
+        return gameversion.GameTarget.from_settings(version, self.store_var.get())
+
+    def _version_changed(self) -> None:
+        target = self._target_game()
+        if target.describe() == getattr(self, "_last_target", None):
+            return
+        self._last_target = target.describe()
+        if not target.active and self.version_var.get().strip() not in ("", gameversion.PRESETS[0][0]):
+            self.game_note_var.set("Type a version like 1.6.1170, or pick one from the list.")
+            return
+        self.game_note_var.set("Files for other versions are left out." if target.active
+                               else "Showing files for every game version.")
+        self._save_settings()
+        # Re-pick files for mods you haven't chosen by hand.
+        for plan in self.plans:
+            if plan.error or plan.skipped or not plan.options:
+                continue
+            if plan.reason in ("your choice", "your earlier choice"):
+                annotate(plan.options, target)
+                if not any(o.fit.hidden for o in plan.selected_options()):
+                    continue  # still fine for the new version: keep it
+                rechoose(plan, None, target)
+                plan.needs_choice = True
+                plan.reason = "your pick was for another game version - check it"
+            else:
+                rechoose(plan, None, target)
+        if self.plans:
+            self._fill_tree()
+
+    def detect_game(self, quiet: bool) -> None:
+        instance = self.path_vars["mo2_instance"].get().strip() if self.manager_var.get() == "mo2" else ""
+
+        def work():
+            games = gameversion.find_games(gameversion.mo2_game_path(instance))
+            self.events.put(("games", (games, quiet)))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _games_found(self, games, quiet: bool) -> None:
+        with_version = [g for g in games if g.version]
+        if not with_version:
+            if not quiet:
+                messagebox.showinfo(
+                    "Detect", "Couldn't find SkyrimSE.exe to read its version.\n\nPick your version "
+                    "from the list instead: the game's version is shown at the bottom left of "
+                    "the main menu.", parent=self.root)
+            return
+        game = with_version[0]
+        if not quiet and len({(g.version, g.store) for g in with_version}) > 1:
+            game = pick_one(self.root, "Which Skyrim?", "More than one Skyrim install was found:",
+                            with_version, lambda g: g.describe()) or game
+        self.version_var.set(gameversion.preset_label(gameversion.version_text(game.version)))
+        self.store_var.set(game.store)
+        self._version_changed()
+        self.game_note_var.set(f"Detected from {game.exe} (via {game.found_by})")
 
     # -- finding MO2 / Vortex -------------------------------------------------
 
@@ -318,6 +406,10 @@ class App:
 
     def _load_settings(self) -> None:
         s = self.settings
+        # Fill these in first: logging in below saves settings, which reads them.
+        self.version_var.set(gameversion.preset_label(s.game_version))
+        self.store_var.set(s.game_store if s.game_store in gameversion.STORES else "Steam")
+        self._last_target = self._target_game().describe()
         self.key_var.set(s.get_api_key())
         self.manager_var.set(s.manager if s.manager in ("mo2", "vortex") else "mo2")
         self.mode_var.set(s.mode if s.mode in ("handoff", "direct") else "handoff")
@@ -333,6 +425,8 @@ class App:
             self.login(quiet=True)
         # Fill in whatever's still blank from a quick look around (registry, usual places).
         self.find_folders(deep=False)
+        if not s.game_version:
+            self.root.after(300, lambda: self.detect_game(quiet=True))
 
     def _save_settings(self) -> None:
         s = self.settings
@@ -343,6 +437,8 @@ class App:
             setattr(s, key, var.get().strip())
         s.set_api_key(self.key_var.get())
         s.theme = self.theme_var.get()
+        s.game_version = gameversion.version_text(self._target_game().version)
+        s.game_store = self.store_var.get()
         s.last_list = str(self.list_path) if self.list_path else ""
         try:
             s.save()
@@ -401,6 +497,8 @@ class App:
                     self._clipboard_login_done(*payload)
                 elif kind == "where":
                     self.where_var.set(payload)
+                elif kind == "games":
+                    self._games_found(*payload)
                 elif kind == "found":
                     self._apply_found(*payload)
                 elif kind == "requirements":
@@ -582,9 +680,10 @@ class App:
                                and p.reason in ("your choice", "your earlier choice")})
         self._save_settings()
         client = self.client
+        target = self._target_game()
 
         def work():
-            plans = resolve(client, entries, remembered=remembered,
+            plans = resolve(client, entries, remembered=remembered, target=target,
                             on_progress=lambda d, t, p: self.events.put(("lookup-progress", (d, t))))
             self.events.put(("plans", plans))
         self._background(work)
@@ -656,11 +755,11 @@ class App:
                                    values=("", "", plan.mod.version if plan.mod else "", "", status),
                                    tags=tags)
             self._row_plan[row] = plan
-            for opt in visible_options(plan.options, self.old_var.get()):
+            for opt in visible_options(plan.options, self.old_var.get(), self.other_var.get()):
                 on = opt.file_id in plan.selected
                 child = self.tree.insert(row, "end", text=opt.name,
                                          values=(ON if on else OFF, opt.category_label, opt.version,
-                                                 opt.size_text, "primary" if opt.is_primary else ""),
+                                                 opt.size_text, _file_status(opt)),
                                          tags=() if on else ("off",))
                 self._row_option[child] = (plan, opt.file_id)
             # Selected files that are hidden (e.g. an old version linked in the list).
@@ -749,7 +848,7 @@ class App:
         if not plans:
             messagebox.showinfo("SkyrimDownloaded", "No mods with options to choose.", parent=self.root)
             return
-        ChoiceDialog(self.root, plans, self.old_var.get()).wait_window()
+        ChoiceDialog(self.root, plans, self.old_var.get(), self.other_var.get()).wait_window()
         self._fill_tree()
 
     # -- downloading ------------------------------------------------------------
@@ -870,6 +969,19 @@ class App:
         self.root.destroy()
 
 
+def _file_status(opt) -> str:
+    bits = []
+    if opt.is_primary:
+        bits.append("primary")
+    if opt.fit.status == "ok" and opt.fit.note:
+        bits.append(opt.fit.note)
+    elif opt.fit.status == "other":
+        bits.append(f"{opt.fit.note} (not your version)")
+    elif opt.fit.note:
+        bits.append(opt.fit.note)
+    return " \u00b7 ".join(bits)
+
+
 def pick_one(master, title: str, prompt: str, items: list, describe):
     """A small list to choose one item from; returns the item or None."""
     win = tk.Toplevel(master)
@@ -906,10 +1018,11 @@ def pick_one(master, title: str, prompt: str, items: list, describe):
 class ChoiceDialog(tk.Toplevel):
     """One mod at a time: tick the files you want, Back / Skip mod / Next."""
 
-    def __init__(self, master, plans: list[ModPlan], include_old: bool):
+    def __init__(self, master, plans: list[ModPlan], include_old: bool, include_other: bool = False):
         super().__init__(master)
         self.plans = plans
         self.include_old = include_old
+        self.include_other = include_other
         self.index = 0
         self.vars: list[tuple[tk.BooleanVar, int]] = []
         self.title("Choose options")
@@ -961,7 +1074,10 @@ class ChoiceDialog(tk.Toplevel):
         self.count.set(f"Mod {self.index + 1} of {len(self.plans)}")
         self.vars = []
         last_cat = None
-        options = visible_options(plan.options, self.include_old)
+        options = visible_options(plan.options, self.include_old, self.include_other)
+        hidden = [o for o in for_other_versions(plan.options) if o not in options]
+        if hidden and "left out" not in self.sub.get():
+            self.sub.set(self.sub.get() + f"   \u2022   {len(hidden)} file(s) for other game versions left out")
         for fid in plan.selected:  # keep a linked old file visible
             opt = plan.option(fid)
             if opt and opt not in options:
@@ -973,6 +1089,8 @@ class ChoiceDialog(tk.Toplevel):
                     anchor="w", pady=(10, 2))
             var = tk.BooleanVar(value=opt.file_id in plan.selected)
             text = f"{opt.name}   v{opt.version}   ({opt.size_text})" if opt.version else f"{opt.name}   ({opt.size_text})"
+            if opt.fit.note and opt.fit.status != "unknown":
+                text += f"   \u2014 {opt.fit.note}"
             ttk.Checkbutton(self.inner, text=text, variable=var).pack(anchor="w")
             if opt.description:
                 desc = opt.description if len(opt.description) < 400 else opt.description[:400] + "…"

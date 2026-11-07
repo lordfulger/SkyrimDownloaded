@@ -24,6 +24,8 @@ MODS = {
            "summary": "Textures", "available": True, "status": "published", "category_id": 29},
     30379: {"mod_id": 30379, "name": "SKSE64", "version": "2.2.6", "author": "ianpatt",
             "available": True, "status": "published", "category_id": 39},
+    17230: {"mod_id": 17230, "name": "SSE Engine Fixes", "version": "7.0", "author": "aers",
+            "available": True, "status": "published", "category_id": 39},
     999: {"mod_id": 999, "name": "Gone Mod", "version": "1", "available": False, "status": "removed"},
 }
 
@@ -50,6 +52,20 @@ FILES = {
          "category_name": "OLD_VERSION", "is_primary": False, "size_in_bytes": len(PAYLOADS[204]),
          "file_name": "Pretty Textures 1K-1000-1-0.7z", "uploaded_timestamp": 1500000000,
          "description": "old"},
+    ],
+    17230: [
+        {"file_id": 401, "name": "SSE Engine Fixes for 1.5.97", "version": "6.2", "category_id": 1,
+         "is_primary": False, "size_kb": 1, "file_name": "SSE Engine Fixes for 1.5.97-17230-6-2.7z",
+         "uploaded_timestamp": 1690000000, "description": ""},
+        {"file_id": 402, "name": "SSE Engine Fixes for 1.6.1170", "version": "7.0", "category_id": 1,
+         "is_primary": True, "size_kb": 1, "file_name": "SSE Engine Fixes for 1.6.1170-17230-7-0.7z",
+         "uploaded_timestamp": 1710000000, "description": ""},
+        {"file_id": 403, "name": "Engine Fixes VR", "version": "6.1", "category_id": 1,
+         "is_primary": False, "size_kb": 1, "file_name": "Engine Fixes VR-17230-6-1.7z",
+         "uploaded_timestamp": 1680000000, "description": ""},
+        {"file_id": 404, "name": "Part 2 - DLLs (all versions)", "version": "7.0", "category_id": 3,
+         "is_primary": False, "size_kb": 1, "file_name": "Part 2-17230-7-0.7z",
+         "uploaded_timestamp": 1710000001, "description": ""},
     ],
     30379: [
         {"file_id": 301, "name": "SKSE64 for AE", "version": "2.2.6", "category_id": 1,

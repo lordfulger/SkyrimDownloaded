@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from .gameversion import GameTarget
 from .downloader import Cancelled, download, safe_file_name
 from .links import ListEntry
 from .managers import ManagerError, Target, nxm_url
@@ -43,7 +44,8 @@ class ModPlan:
 
 
 def resolve_one(client: NexusClient, entry: ListEntry,
-                remembered: dict[str, list[int]] | None = None) -> ModPlan:
+                remembered: dict[str, list[int]] | None = None,
+                target: GameTarget | None = None) -> ModPlan:
     plan = ModPlan(entry)
     if entry.rule.mode == "skip":
         plan.reason = "skipped in the list"
@@ -57,19 +59,25 @@ def resolve_one(client: NexusClient, entry: ListEntry,
     except NexusError as err:
         plan.error = str(err) if err.status != 404 else "not found on Nexus (removed, hidden or wrong link)"
         return plan
-    choice = choose(entry, plan.options, (remembered or {}).get(entry.key))
-    plan.selected, plan.needs_choice, plan.reason = choice.selected, choice.needs_choice, choice.reason
+    rechoose(plan, (remembered or {}).get(entry.key), target)
     return plan
+
+
+def rechoose(plan: ModPlan, remembered: list[int] | None = None,
+             target: GameTarget | None = None) -> None:
+    """(Re)pick a looked-up mod's files, e.g. after the game version changed."""
+    choice = choose(plan.entry, plan.options, remembered, target)
+    plan.selected, plan.needs_choice, plan.reason = choice.selected, choice.needs_choice, choice.reason
 
 
 def resolve(client: NexusClient, entries: list[ListEntry], *,
             remembered: dict[str, list[int]] | None = None,
             on_progress: Callable[[int, int, ModPlan], None] | None = None,
-            workers: int = 4) -> list[ModPlan]:
+            workers: int = 4, target: GameTarget | None = None) -> list[ModPlan]:
     """Look up every mod in the list. Order is kept."""
     plans: list[ModPlan | None] = [None] * len(entries)
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        futures = {pool.submit(resolve_one, client, e, remembered): i for i, e in enumerate(entries)}
+        futures = {pool.submit(resolve_one, client, e, remembered, target): i for i, e in enumerate(entries)}
         done = 0
         for fut in as_completed(futures):
             i = futures[fut]

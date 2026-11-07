@@ -37,6 +37,8 @@ class Settings:
     vortex_exe: str = ""
     last_list: str = ""
     theme: str = "System"           # "System", "Light" or "Dark"
+    game_version: str = ""          # e.g. "1.6.1170"; blank = don't filter by version
+    game_store: str = "Steam"       # "Steam", "GOG" or "Game Pass"
     api_key_protected: str = field(default="", repr=False)
 
     # -- the API key -------------------------------------------------------
@@ -54,6 +56,10 @@ class Settings:
 
     def set_api_key(self, key: str) -> None:
         self.api_key_protected = _protect(key.strip()) if key.strip() else ""
+
+    def game_target(self):
+        from .gameversion import GameTarget
+        return GameTarget.from_settings(self.game_version, self.game_store)
 
     def target_paths(self) -> dict[str, str]:
         return {k: getattr(self, k) for k in

@@ -17,7 +17,8 @@ from .links import parse_list
 from . import finder
 from .managers import ManagerError, make_target
 from .nexus import AuthError, NexusClient, NexusError
-from .selection import human_size, visible_options
+from .gameversion import PRESETS, STORES, find_games, mo2_game_path, version_text
+from .selection import for_other_versions, human_size, visible_options
 
 
 def _out(msg: str = "") -> None:
@@ -26,9 +27,11 @@ def _out(msg: str = "") -> None:
 
 # -- choosing files in the console ------------------------------------------
 
-def ask_choice(plan: ModPlan, include_old: bool = False, inp=None) -> None:
+def ask_choice(plan: ModPlan, include_old: bool = False, inp=None,
+               include_other: bool = False) -> None:
     inp = inp or input
-    options = visible_options(plan.options, include_old)
+    options = visible_options(plan.options, include_old, include_other)
+    hidden = [o for o in for_other_versions(plan.options) if o not in options]
     if not options:
         return
     by_author = f" by {plan.mod.author}" if plan.mod and plan.mod.author else ""
@@ -39,12 +42,16 @@ def ask_choice(plan: ModPlan, include_old: bool = False, inp=None) -> None:
     def show(with_desc: bool) -> None:
         for n, opt in enumerate(options, start=1):
             mark = "x" if opt.file_id in plan.selected else " "
-            _out(f"  {n:>2}. [{mark}] {opt.label()}")
+            fit_note = f"   <- {opt.fit.note}" if opt.fit.note and opt.fit.status != "unknown" else ""
+            _out(f"  {n:>2}. [{mark}] {opt.label()}{fit_note}")
             if with_desc and opt.description:
                 for line in opt.description.splitlines()[:6]:
                     _out(f"          {line}")
 
     show(False)
+    if hidden:
+        _out(f"      ({len(hidden)} file(s) for other game versions left out: "
+             + ", ".join(f"{o.name} [{o.fit.note}]" for o in hidden[:4]) + ")")
     while True:
         answer = inp("   Files to get (e.g. 1,3), Enter = keep [x], ? = descriptions, 0 = skip mod: ").strip()
         if answer == "":
@@ -101,6 +108,13 @@ def cmd_detect(args, settings: Settings) -> int:
         _out(f"      ModOrganizer.exe -> {inst.exe or 'not found'}")
     if not found.mo2:
         _out("   none found" + ("" if args.deep else " (try: detect --deep)"))
+    _out("Skyrim installs:")
+    best = found.best_mo2()
+    games = find_games(mo2_game_path(settings.mo2_instance or (best.instance_dir if best else None)))
+    for g in games:
+        _out(f"   {g.describe()}  (found via {g.found_by})")
+    if not games:
+        _out("   none found")
     _out("Vortex:")
     _out(f"   Vortex.exe -> {found.vortex.exe or 'not found'}")
     root = found.vortex.downloads_root
@@ -116,6 +130,9 @@ def cmd_detect(args, settings: Settings) -> int:
             settings.vortex_exe = str(found.vortex.exe)
         if root:
             settings.vortex_downloads = str(root)
+        if games and games[0].version and not settings.game_version:
+            settings.game_version = version_text(games[0].version)
+            settings.game_store = games[0].store
         _out(f"Saved to {settings.save()}")
     return 0
 
@@ -148,6 +165,10 @@ def _auto_fill(settings: Settings) -> None:
 
 
 def _apply_overrides(args, settings: Settings) -> None:
+    if getattr(args, "game_version", None) is not None:
+        settings.game_version = "" if args.game_version.lower() in ("any", "") else args.game_version
+    if getattr(args, "store", None):
+        settings.game_store = {"steam": "Steam", "gog": "GOG", "gamepass": "Game Pass"}[args.store]
     for name in ("manager", "mode", "parallel", "game", "mo2_instance", "mo2_exe",
                  "vortex_exe"):
         value = getattr(args, name, None)
@@ -220,7 +241,8 @@ def _check_requirements(client, plans, list_path, remembered, args, settings):
         except OSError as err:
             _out(f"(Couldn't add them to the list file: {err})")
         new_entries, _ = parse_list("\n".join(lines), settings.game)
-        plans = plans + resolve(client, new_entries, remembered=remembered)
+        plans = plans + resolve(client, new_entries, remembered=remembered,
+                                target=settings.game_target())
     return plans
 
 
@@ -269,8 +291,9 @@ def cmd_run(args, settings: Settings) -> int:
 
     store = choices_path(list_path)
     remembered = {} if args.fresh else load_choices(store)
-    _out(f"Looking up {len(entries)} mods on Nexus...")
-    plans = resolve(client, entries, remembered=remembered)
+    target = settings.game_target()
+    _out(f"Looking up {len(entries)} mods on Nexus (your game: {target.describe()})...")
+    plans = resolve(client, entries, remembered=remembered, target=target)
     if not args.no_requirements:
         plans = _check_requirements(client, plans, list_path, remembered, args, settings)
 
@@ -280,7 +303,7 @@ def cmd_run(args, settings: Settings) -> int:
     if not args.yes:
         for plan in plans:
             if plan.needs_choice and not plan.error:
-                ask_choice(plan, args.include_old)
+                ask_choice(plan, args.include_old, include_other=args.show_other_versions)
     save_choices(store, plans)
 
     jobs = jobs_for(plans)
@@ -357,6 +380,13 @@ def build_parser() -> argparse.ArgumentParser:
                      help="don't ask: take the primary file where a mod has options")
     run.add_argument("--fresh", action="store_true", help="ignore the choices saved last time")
     run.add_argument("--include-old", action="store_true", help="also offer old versions")
+    run.add_argument("--game-version", metavar="VERSION",
+                     help="your Skyrim version, e.g. 1.6.1170, 1.6.640, 1.5.97 or 1.4.15 (VR); files "
+                          "for other versions are left out. 'any' turns this off. Remembered.")
+    run.add_argument("--store", choices=["steam", "gog", "gamepass"],
+                     help="where your Skyrim is from (GOG / Game Pass builds have their own files)")
+    run.add_argument("--show-other-versions", action="store_true",
+                     help="also offer files that look like they're for other game versions")
     run.add_argument("--redownload", action="store_true", help="even if already downloaded")
     run.add_argument("--dry-run", action="store_true", help="look everything up, download nothing")
     run.add_argument("--add-requirements", action="store_true",

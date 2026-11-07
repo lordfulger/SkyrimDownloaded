@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .gameversion import Fit, GameTarget, fit
 from .links import ListEntry, Rule
 
 # Nexus file categories, by category_id and by category_name.
@@ -39,6 +40,7 @@ class FileOption:
     is_primary: bool = False
     uploaded: int = 0
     description: str = ""
+    fit: Fit = field(default_factory=lambda: Fit("unknown"))   # for your game version?
     raw: dict = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -127,14 +129,41 @@ def sort_options(files: list[FileOption]) -> list[FileOption]:
     return sorted(files, key=lambda f: (_ORDER.get(f.category, 9), not f.is_primary, -f.uploaded))
 
 
-def visible_options(files: list[FileOption], include_old: bool = False) -> list[FileOption]:
-    """What the user is offered. Old and archived files only if asked for."""
+def annotate(files: list[FileOption], target: GameTarget | None) -> None:
+    """Work out which files are for your game version."""
+    for f in files:
+        f.fit = fit(f.name, f.file_name, f.description, target)
+
+
+def for_other_versions(files: list[FileOption]) -> list[FileOption]:
+    return [f for f in files if f.category in CURRENT and f.fit.hidden]
+
+
+def visible_options(files: list[FileOption], include_old: bool = False,
+                    include_other: bool = False) -> list[FileOption]:
+    """What the user is offered. Old versions, and files for other game versions,
+    only if asked for (or if nothing would be left)."""
     cats = CURRENT + ((OLD, ARCHIVED) if include_old else ())
-    return [f for f in sort_options(files) if f.category in cats]
+    shown = [f for f in sort_options(files) if f.category in cats]
+    if include_other:
+        return shown
+    fitting = [f for f in shown if not f.fit.hidden]
+    current_fitting = [f for f in fitting if f.category in CURRENT]
+    if not current_fitting:
+        return shown  # every file looks like it's for another version: show them all
+    return fitting
+
+
+def _rank(f: FileOption) -> int:
+    return {"ok": 0, "unknown": 1}.get(f.fit.status, 2)
 
 
 def primary_file(files: list[FileOption]) -> FileOption | None:
     current = [f for f in files if f.category in CURRENT]
+    if not current:
+        return None
+    best = min(_rank(f) for f in current)
+    current = [f for f in current if _rank(f) == best]  # prefer files for your version
     for pool in (
         [f for f in current if f.is_primary],
         [f for f in current if f.category == MAIN],
@@ -145,8 +174,14 @@ def primary_file(files: list[FileOption]) -> FileOption | None:
     return None
 
 
-def choose(entry: ListEntry, files: list[FileOption], remembered: list[int] | None = None) -> Choice:
-    """Pick files for a mod from its list line, a saved earlier choice, or ask."""
+def choose(entry: ListEntry, files: list[FileOption], remembered: list[int] | None = None,
+           target: GameTarget | None = None) -> Choice:
+    """Pick files for a mod from its list line, a saved earlier choice, or ask.
+
+    With a ``target`` game version, files for other versions are left out
+    (when that leaves a single file, there's nothing to ask).
+    """
+    annotate(files, target)
     by_id = {f.file_id: f for f in files}
     rule: Rule = entry.rule
 
@@ -167,9 +202,17 @@ def choose(entry: ListEntry, files: list[FileOption], remembered: list[int] | No
         return Choice([fallback.file_id] if fallback else [], True,
                       "the linked file isn't on Nexus any more - pick its replacement")
 
-    current = [f for f in sort_options(files) if f.category in CURRENT]
-    if not current:
+    all_current = [f for f in sort_options(files) if f.category in CURRENT]
+    if not all_current:
         return Choice([], True, "no current files on the Files tab")
+    current = [f for f in all_current if not f.fit.hidden]
+    hidden = len(all_current) - len(current)
+    if not current:
+        # Everything looks like it's for another version: let the user decide.
+        best = primary_file(files)
+        return Choice([best.file_id] if best else [], True,
+                      f"no file seems to be for {target.describe() if target else 'your game'}")
+    note = f" ({hidden} for other game versions left out)" if hidden else ""
 
     # 2. Name matches, e.g. "| match=2K".
     if rule.match:
@@ -190,17 +233,18 @@ def choose(entry: ListEntry, files: list[FileOption], remembered: list[int] | No
 
     if rule.mode == "main":
         mains = [f.file_id for f in current if f.category == MAIN] or [current[0].file_id]
-        return Choice(mains, False, "all main files")
+        return Choice(mains, False, "all main files" + note)
     if rule.mode == "all":
-        return Choice([f.file_id for f in current], False, "all current files")
+        return Choice([f.file_id for f in current], False, "all current files" + note)
 
     best = primary_file(files)
     selected = [best.file_id] if best else []
     if rule.mode == "primary":
-        return Choice(selected, False, "primary file")
+        return Choice(selected, False, "primary file" + note)
     if rule.mode == "ask":
-        return Choice(selected, True, "you asked to choose")
+        return Choice(selected, True, "you asked to choose" + note)
     # auto: ask only when there is a real choice to make.
     if len(current) == 1:
-        return Choice(selected, False, "only one file")
-    return Choice(selected, True, f"{len(current)} files to choose from")
+        return Choice(selected, False,
+                      "the only file for your game version" + note if hidden else "only one file")
+    return Choice(selected, True, f"{len(current)} files to choose from" + note)

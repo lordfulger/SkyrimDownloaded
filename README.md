@@ -69,12 +69,40 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
    - It checks which program opens `nxm://` links and the installed-programs list in the registry.
    - It looks at MO2's global instances and Vortex's own settings, which include a moved downloads folder.
    - It searches your drives a few folders deep for `ModOrganizer.exe`, `Vortex.exe` and the marker file Vortex keeps in its downloads folder. This step stops after a minute.
-3. **Mod list:** open a `.txt` file, or type or paste links into the box. Then press **Look up mods**.
-4. **Choose options:** for every mod with more than one file, a window steps you through them one at a time. Tick the files you want, or choose **Leave this mod out**. You can change any choice later in the list.
+3. **Your Skyrim:** pick your game version, or press **Detect** to read it from your `SkyrimSE.exe` (see below).
+4. **Mod list:** open a `.txt` file, or type or paste links into the box. Then press **Look up mods**.
+5. **Choose options:** for every mod with more than one file, a window steps you through them one at a time. Tick the files you want, or choose **Leave this mod out**. You can change any choice later in the list.
    - Tick or untick a file by clicking its box or double-clicking the file.
    - Select a file to read its description.
    - Choose **Open mod page** to check the mod's page on Nexus.
-5. **Start downloads.** For "Mod manager downloads", open MO2 or Vortex on your Skyrim setup first. If you stop part way, start again later and it carries on where it left off.
+6. **Start downloads.** For "Mod manager downloads", open MO2 or Vortex on your Skyrim setup first. If you stop part way, start again later and it carries on where it left off.
+
+## Picking files for your Skyrim version
+
+Many mods offer separate files for different versions of the game. SSE Engine Fixes, for example, has one for 1.5.97 and one for 1.6.1170, and some mods have a VR build. Set **Your Skyrim** and files for other versions are left out. When only one file is left, it's picked without asking.
+
+- **Detect** reads the version from `SkyrimSE.exe`. It uses your MO2 instance's game folder if it has one, otherwise your Steam or GOG install. With a blank version, Detect runs on its own at start-up.
+- **Which Skyrim versions match:** a file made for any version in the same group as yours counts as yours.
+
+  | Group | Versions |
+  |---|---|
+  | SE | 1.5.97 and other 1.5 versions |
+  | early AE | 1.6.353 and before |
+  | AE 640 | 1.6.640, including GOG 1.6.659 |
+  | AE 1130+ | 1.6.1130, 1.6.1170 and later |
+  | VR | 1.4.15 |
+
+  Patches inside a group generally work with each other's files, so a plugin made for 1.6.1130 still counts as yours on 1.6.1170.
+- **What it reads:** Nexus doesn't record which game version a file is for, so the tool reads the file's **name**:
+  - version numbers (`1.5.97`, `1.6.640`, `AE 1170`, `1.6.1130+`, `640 and older`)
+  - the words *AE*, *pre-AE* and *VR*
+  - store names (*GOG*, *Game Pass*)
+
+  Files marked *SE/AE* or *all versions* are kept for everyone. A version only mentioned in a file's **description** is shown as a note, but never hides the file.
+- **Store:** GOG and Game Pass builds have their own files, so set **from** to where your game came from.
+- **Seeing what was left out:** tick **Show files for other game versions**. Each file says what it's for, e.g. "for SE 1.5.97 (not your version)". If every file of a mod looks like it's for another version, nothing is hidden and you're asked to choose.
+- **Changing the version later:** files are picked again right away. Mods where you'd already picked a file for the old version are highlighted for you to check.
+- **Command line:** `--game-version 1.6.1170` (or `any`) and `--store gog`. `detect` shows the Skyrim installs it finds.
 
 ## The list file
 
@@ -138,6 +166,8 @@ Useful flags for `run`:
 | `--yes` | Never asks: takes the primary file wherever a mod has options |
 | `--fresh` | Ignores the choices saved last time |
 | `--include-old` | Also offers old versions |
+| `--game-version 1.6.1170` / `--store gog` | Your game, so files for other versions are left out (`any` turns this off) |
+| `--show-other-versions` | Also offers files that look like they're for other game versions |
 | `--add-requirements` / `--no-requirements` | Adds missing requirements without asking, or skips the requirements check |
 | `--no-install` | Vortex: only download, don't install |
 | `--downloads <folder>` | Uses a different downloads folder |
@@ -173,5 +203,6 @@ skyrimdl/
   finder.py      find MO2 instances, ModOrganizer.exe, Vortex.exe and its downloads folder
   config.py      settings, DPAPI-protected API key, saved choices
   theme.py       light / dark / follow-Windows looks for the window
+  gameversion.py which game version a file is for; find Skyrim and read SkyrimSE.exe's version
   cli.py, gui.py command line and Tk window
 ```

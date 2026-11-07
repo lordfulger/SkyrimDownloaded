@@ -96,5 +96,15 @@ class FinderTests(unittest.TestCase):
                          Path("C:\\Program Files\\Vortex\\Vortex.exe"))
 
 
+@unittest.skipUnless(os.name == "nt", "Windows only")
+class WindowsSmokeTests(unittest.TestCase):
+    def test_registry_and_drives_dont_crash(self):
+        self.assertIsInstance(finder._registry_values(), list)
+        drives = finder.fixed_drives()
+        self.assertTrue(any(d.upper().startswith("C:") for d in drives), drives)
+        found = finder.find(deep=False)
+        self.assertIsInstance(found.mo2, list)
+
+
 if __name__ == "__main__":
     unittest.main()

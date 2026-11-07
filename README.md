@@ -37,15 +37,24 @@ Download `SkyrimDownloaded.exe` from the latest run of the **Build** workflow (t
 
 No extra packages are needed: it uses only Python's standard library.
 
-### Your Nexus API key
-1. Go to <https://www.nexusmods.com/settings/api-keys> and copy the **Personal API Key** at the bottom of the page.
-2. Paste it into the tool and press **Log in**. It should say *Logged in as … (Premium)*.
+### Logging in to Nexus
+1. Press **Log in with Nexus**. Your browser opens Nexus's API key page (log in there if asked).
+2. Click **Copy** next to your **Personal API Key**, or select it and press Ctrl+C.
+
+SkyrimDownloaded spots the key on your clipboard, logs in, and clears the clipboard. It should then say *Logged in as … (Premium)*. You only do this once.
+
+You can also paste the key into the box and press **Use key**. **Log out** forgets the key.
 
 The key is stored encrypted with your Windows login (DPAPI) in `%APPDATA%\SkyrimDownloaded\settings.json`. You can instead set the `NEXUS_API_KEY` environment variable.
 
+**Why not a sign-in button like MO2's?** That kind of sign-in needs an application ID that Nexus issues to each program, and SkyrimDownloaded doesn't have one yet. Borrowing MO2's or Vortex's would break Nexus's API rules.
+
+### Dark mode
+Use **Theme** at the top right: **System** follows Windows' light/dark app setting, or choose **Light** or **Dark**. Dark mode also darkens the title bar on Windows 10 and 11.
+
 ## Using the window
 
-1. **Nexus account:** paste your key and log in.
+1. **Nexus account:** press **Log in with Nexus** (see above).
 2. **Mod manager:** pick MO2 or Vortex and one of the two modes, then press **🔍 Find automatically**.
    - It searches this PC for Mod Organizer 2 and Vortex and fills in the folders. If you have more than one Skyrim setup, it asks which one to use.
    - A quick version of the search also runs every time the program starts, filling in anything left blank.
@@ -163,5 +172,6 @@ skyrimdl/
   managers/      mo2.py (.meta files, ModOrganizer.ini), vortex.py (Vortex CLI)
   finder.py      find MO2 instances, ModOrganizer.exe, Vortex.exe and its downloads folder
   config.py      settings, DPAPI-protected API key, saved choices
+  theme.py       light / dark / follow-Windows looks for the window
   cli.py, gui.py command line and Tk window
 ```

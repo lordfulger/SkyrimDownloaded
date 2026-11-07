@@ -278,6 +278,14 @@ class ManagerAndConfigTests(unittest.TestCase):
         loaded = Settings.load(self.tmp)
         self.assertEqual((loaded.manager, loaded.get_api_key()), ("vortex", "secret-key"))
 
+    def test_theme_setting_roundtrip(self):
+        Settings(theme="Dark").save(self.tmp)
+        self.assertEqual(Settings.load(self.tmp).theme, "Dark")
+        from skyrimdl.theme import resolve
+        self.assertEqual(resolve("Dark"), "Dark")
+        self.assertEqual(resolve("Light"), "Light")
+        self.assertIn(resolve("System"), ("Light", "Dark"))
+
     def test_choices_file(self):
         fake = FakeNexus().__enter__()
         self.addCleanup(fake.__exit__)

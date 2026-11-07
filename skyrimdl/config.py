@@ -36,6 +36,7 @@ class Settings:
     vortex_downloads: str = ""
     vortex_exe: str = ""
     last_list: str = ""
+    theme: str = "System"           # "System", "Light" or "Dark"
     api_key_protected: str = field(default="", repr=False)
 
     # -- the API key -------------------------------------------------------

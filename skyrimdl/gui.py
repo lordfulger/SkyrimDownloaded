@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+import re
 import threading
 import webbrowser
 from pathlib import Path
@@ -16,12 +17,16 @@ from .engine import (DONE, missing_requirements, FAILED, SENT, SKIPPED, STOPPED,
                      jobs_for, resolve, summary)
 from .links import parse_list
 from . import finder
+from . import theme as theme_mod
 from .managers import ManagerError, make_target
 from .nexus import NexusClient, NexusError
 from .selection import human_size, visible_options
 
 API_KEY_PAGE = "https://www.nexusmods.com/settings/api-keys"
-ON, OFF = "☑", "☐"  # ☑ ☐
+ON, OFF = "\u2611", "\u2610"  # ☑ ☐
+# A Nexus personal API key: one long run of base64-ish characters, no spaces.
+_KEY_SHAPE = re.compile(r"^[A-Za-z0-9+/=_\-]{40,400}$")
+CLIPBOARD_WAIT_MS = 5 * 60 * 1000
 
 
 class App:
@@ -42,9 +47,14 @@ class App:
         self._list_was_saved = False
 
         root.title(f"SkyrimDownloaded {__version__}")
-        root.geometry("1040x760")
+        root.geometry("1060x800")
         root.minsize(820, 600)
+        self.theme = theme_mod.Theme(root, settings.theme)
+        root._theme = self.theme  # dialogs pick it up from their parent
+        self._watching_clipboard = False
+        self._clip_seen: set[str] = set()
         self._build()
+        self.theme.apply()
         self._load_settings()
         root.after(100, self._pump)
         root.protocol("WM_DELETE_WINDOW", self._close)
@@ -59,14 +69,30 @@ class App:
         # Account
         acct = ttk.LabelFrame(outer, text="1. Nexus Mods account")
         acct.pack(fill="x", **pad)
-        ttk.Label(acct, text="Personal API key:").grid(row=0, column=0, sticky="w", padx=6, pady=6)
-        self.key_var = tk.StringVar()
-        ttk.Entry(acct, textvariable=self.key_var, show="•", width=48).grid(row=0, column=1, sticky="we", padx=6)
-        ttk.Button(acct, text="Log in", command=self.login).grid(row=0, column=2, padx=4)
-        ttk.Button(acct, text="Get my key…", command=lambda: webbrowser.open(API_KEY_PAGE)).grid(row=0, column=3, padx=4)
+        top_row = ttk.Frame(acct)
+        top_row.pack(fill="x", padx=6, pady=(6, 2))
+        self.nexus_btn = ttk.Button(top_row, text="Log in with Nexus", style="Accent.TButton",
+                                    command=self.nexus_login)
+        self.nexus_btn.pack(side="left")
         self.account_var = tk.StringVar(value="Not logged in")
-        ttk.Label(acct, textvariable=self.account_var).grid(row=0, column=4, sticky="w", padx=8)
-        acct.columnconfigure(1, weight=1)
+        ttk.Label(top_row, textvariable=self.account_var).pack(side="left", padx=10)
+        self.theme_var = tk.StringVar(value=self.settings.theme if self.settings.theme in theme_mod.MODES
+                                      else "System")
+        theme_box = ttk.Combobox(top_row, textvariable=self.theme_var, values=theme_mod.MODES,
+                                 state="readonly", width=8)
+        theme_box.pack(side="right")
+        theme_box.bind("<<ComboboxSelected>>", lambda e: self._theme_changed())
+        ttk.Label(top_row, text="Theme:").pack(side="right", padx=(0, 4))
+
+        key_row = ttk.Frame(acct)
+        key_row.pack(fill="x", padx=6, pady=(2, 6))
+        ttk.Label(key_row, text="Or paste your API key:", style="Muted.TLabel").pack(side="left")
+        self.key_var = tk.StringVar()
+        ttk.Entry(key_row, textvariable=self.key_var, show="\u2022").pack(
+            side="left", fill="x", expand=True, padx=6)
+        ttk.Button(key_row, text="Use key", command=self.login).pack(side="left")
+        self.logout_btn = ttk.Button(key_row, text="Log out", command=self.logout)
+        self.logout_btn.pack(side="left", padx=(4, 0))
 
         # Mod manager
         mgr = ttk.LabelFrame(outer, text="2. Mod manager")
@@ -109,7 +135,7 @@ class App:
                                    command=lambda: self.find_folders(deep=True))
         self.find_btn.pack(side="left")
         self.where_var = tk.StringVar()
-        ttk.Label(found, textvariable=self.where_var, foreground="#555").pack(side="left", fill="x", padx=8)
+        ttk.Label(found, textvariable=self.where_var, style="Muted.TLabel").pack(side="left", fill="x", padx=8)
         self.found: finder.Findings | None = None
 
         # List
@@ -125,7 +151,8 @@ class App:
         self.lookup_btn.pack(side="right")
         self.fresh_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(bar, text="Forget last choices", variable=self.fresh_var).pack(side="right", padx=8)
-        self.list_text = tk.Text(lst, height=6, wrap="none", undo=True)
+        self.list_text = tk.Text(lst, height=5, wrap="none", undo=True, relief="flat",
+                                 highlightthickness=1)
         self.list_text.pack(fill="x", padx=6, pady=(0, 6))
 
         # Plan
@@ -155,21 +182,20 @@ class App:
         self.tree.configure(yscrollcommand=sb.set)
         self.tree.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
-        self.tree.tag_configure("choose", background="#fff1cc")
-        self.tree.tag_configure("error", foreground="#b00020")
-        self.tree.tag_configure("off", foreground="#888")
-        self.tree.tag_configure("done", foreground="#1b7a1b")
         self.tree.bind("<ButtonRelease-1>", self._tree_click)
         self.tree.bind("<space>", lambda e: self._toggle(self.tree.focus()))
         self.tree.bind("<<TreeviewSelect>>", self._show_details)
         self.tree.bind("<Double-1>", self._tree_double)
 
-        self.details = tk.Text(plan, height=4, wrap="word", state="disabled", background="#f7f7f7")
+        self.details = tk.Text(plan, height=4, wrap="word", state="disabled", relief="flat",
+                               highlightthickness=1)
+        self.details._details = True
         self.details.pack(fill="x", padx=6, pady=6)
 
         # Go
         go = ttk.Frame(outer)
-        go.pack(fill="x", **pad)
+        # Packed first at the bottom, so it never gets squeezed off a small window.
+        go.pack(side="bottom", fill="x", before=outer.winfo_children()[0], **pad)
         self.progress = ttk.Progressbar(go, mode="determinate")
         self.progress.pack(side="left", fill="x", expand=True)
         self.status_var = tk.StringVar(value="Ready")
@@ -315,8 +341,8 @@ class App:
         s.install = self.install_var.get()
         for key, var in self.path_vars.items():
             setattr(s, key, var.get().strip())
-        if self.key_var.get().strip():
-            s.set_api_key(self.key_var.get())
+        s.set_api_key(self.key_var.get())
+        s.theme = self.theme_var.get()
         s.last_list = str(self.list_path) if self.list_path else ""
         try:
             s.save()
@@ -371,6 +397,8 @@ class App:
                                         + (f", {waiting} have options to choose" if waiting else "")
                                         + ". Checking requirements\u2026")
                     self._check_requirements()
+                elif kind == "clipboard-login":
+                    self._clipboard_login_done(*payload)
                 elif kind == "where":
                     self.where_var.set(payload)
                 elif kind == "found":
@@ -392,6 +420,82 @@ class App:
         self.root.after(150, self._pump)
 
     # -- account ----------------------------------------------------------------
+
+    # -- logging in with Nexus ------------------------------------------------
+
+    def nexus_login(self) -> None:
+        """Open Nexus's key page and log in as soon as the key is copied."""
+        if self._watching_clipboard:
+            self._stop_clipboard_watch("Not logged in")
+            return
+        webbrowser.open(API_KEY_PAGE)
+        self._watching_clipboard = True
+        self._clip_seen = set()
+        self.nexus_btn.configure(text="Cancel")
+        self.account_var.set("In your browser: log in to Nexus if asked, then click Copy next to "
+                             "your Personal API Key (or select it and press Ctrl+C)\u2026")
+        self.root.after(CLIPBOARD_WAIT_MS, lambda: self._watching_clipboard and
+                        self._stop_clipboard_watch("Gave up waiting for the key - try again"))
+        self._poll_clipboard()
+
+    def _poll_clipboard(self) -> None:
+        if not self._watching_clipboard:
+            return
+        try:
+            text = self.root.clipboard_get().strip()
+        except tk.TclError:
+            text = ""
+        if text and text not in self._clip_seen and _KEY_SHAPE.match(text):
+            self._clip_seen.add(text)
+            self._try_clipboard_key(text)
+        self.root.after(700, self._poll_clipboard)
+
+    def _try_clipboard_key(self, key: str) -> None:
+        def work():
+            try:
+                client = NexusClient(key)
+                acct = client.validate()
+            except NexusError:
+                return  # not a key (or not this one): keep waiting
+            self.events.put(("clipboard-login", (key, client, acct)))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _clipboard_login_done(self, key, client, acct) -> None:
+        if not self._watching_clipboard:
+            return
+        self._stop_clipboard_watch(f"Logged in as {acct.name} ({acct.kind})")
+        self.client = client
+        self.key_var.set(key)
+        self._save_settings()
+        try:  # don't leave the key sitting on the clipboard
+            self.root.clipboard_clear()
+        except tk.TclError:
+            pass
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+        if not acct.is_premium:
+            messagebox.showwarning("SkyrimDownloaded", "This account isn't Premium. Nexus only gives "
+                                   "download links to tools for Premium accounts.", parent=self.root)
+
+    def _stop_clipboard_watch(self, message: str) -> None:
+        self._watching_clipboard = False
+        self.nexus_btn.configure(text="Log in with Nexus")
+        self.account_var.set(message)
+
+    def logout(self) -> None:
+        self._watching_clipboard = False
+        self.client = None
+        self.key_var.set("")
+        self.settings.set_api_key("")
+        self.nexus_btn.configure(text="Log in with Nexus")
+        self.account_var.set("Logged out")
+        self._save_settings()
+
+    def _theme_changed(self) -> None:
+        self.theme.apply(self.theme_var.get())
+        self.settings.theme = self.theme_var.get()
+        self._save_settings()
 
     def login(self, quiet: bool = False) -> None:
         key = self.key_var.get().strip()
@@ -774,7 +878,7 @@ def pick_one(master, title: str, prompt: str, items: list, describe):
     win.transient(master)
     win.grab_set()
     ttk.Label(win, text=prompt, wraplength=680).pack(anchor="w", padx=12, pady=(12, 6))
-    box = tk.Listbox(win, activestyle="dotbox")
+    box = tk.Listbox(win, activestyle="dotbox", relief="flat", highlightthickness=1)
     for item in items:
         box.insert("end", describe(item))
     box.pack(fill="both", expand=True, padx=12)
@@ -793,6 +897,8 @@ def pick_one(master, title: str, prompt: str, items: list, describe):
     ttk.Button(btns, text="Cancel", command=win.destroy).pack(side="right", padx=6)
     box.bind("<Double-1>", ok)
     box.bind("<Return>", ok)
+    if getattr(master, "_theme", None):
+        master._theme.paint(win)
     win.wait_window()
     return result["item"]
 
@@ -813,8 +919,8 @@ class ChoiceDialog(tk.Toplevel):
 
         self.head = tk.StringVar()
         self.sub = tk.StringVar()
-        ttk.Label(self, textvariable=self.head, font=("TkDefaultFont", 13, "bold")).pack(anchor="w", padx=12, pady=(12, 0))
-        ttk.Label(self, textvariable=self.sub, foreground="#555").pack(anchor="w", padx=12)
+        ttk.Label(self, textvariable=self.head, style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
+        ttk.Label(self, textvariable=self.sub, style="Muted.TLabel").pack(anchor="w", padx=12)
 
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True, padx=12, pady=8)
@@ -838,6 +944,8 @@ class ChoiceDialog(tk.Toplevel):
         ttk.Button(btns, text="Leave this mod out", command=self.skip).pack(side="right")
         self.protocol("WM_DELETE_WINDOW", self.finish)
         self.show()
+        if getattr(master, "_theme", None):
+            master._theme.paint(self)
 
     @property
     def plan(self) -> ModPlan:
@@ -868,7 +976,7 @@ class ChoiceDialog(tk.Toplevel):
             ttk.Checkbutton(self.inner, text=text, variable=var).pack(anchor="w")
             if opt.description:
                 desc = opt.description if len(opt.description) < 400 else opt.description[:400] + "…"
-                ttk.Label(self.inner, text=desc, wraplength=660, foreground="#555").pack(anchor="w", padx=24)
+                ttk.Label(self.inner, text=desc, wraplength=660, style="Muted.TLabel").pack(anchor="w", padx=24)
             self.vars.append((var, opt.file_id))
         self.canvas.yview_moveto(0)
 
@@ -902,10 +1010,6 @@ class ChoiceDialog(tk.Toplevel):
 
 def run_gui(settings: Settings) -> int:
     root = tk.Tk()
-    try:
-        ttk.Style(root).theme_use("vista")
-    except tk.TclError:
-        pass
     App(root, settings)
     root.mainloop()
     return 0

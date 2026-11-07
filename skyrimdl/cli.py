@@ -14,8 +14,8 @@ from .config import Settings, choices_path, load_choices, save_choices
 from .engine import (DONE, missing_requirements, FAILED, SENT, SKIPPED, STOPPED, WORKING, Job, ModPlan, Runner,
                      jobs_for, resolve, summary)
 from .links import parse_list
-from .managers import ManagerError, find_instances, make_target
-from .managers.vortex import default_downloads, default_exe_candidates
+from . import finder
+from .managers import ManagerError, make_target
 from .nexus import AuthError, NexusClient, NexusError
 from .selection import human_size, visible_options
 
@@ -91,22 +91,60 @@ def cmd_login(args, settings: Settings) -> int:
 
 
 def cmd_detect(args, settings: Settings) -> int:
-    _out("Mod Organizer 2 instances (global):")
-    instances = find_instances()
-    for inst in instances:
-        try:
-            target = make_target("mo2", settings.game, mo2_instance=str(inst))
-            _out(f"  {inst.name}: downloads -> {target.downloads_dir()}")
-        except ManagerError as err:
-            _out(f"  {inst.name}: {err}")
-    if not instances:
-        _out("  none found (portable instances: pass --mo2-instance <MO2 folder>)")
+    found = finder.find(deep=args.deep, budget=args.budget,
+                        progress=(lambda m: None))
+    _out("Mod Organizer 2 setups:")
+    for inst in found.sorted_mo2():
+        mark = "*" if inst.is_skyrim_se else " "
+        _out(f" {mark} {inst.describe()}")
+        _out(f"      downloads -> {inst.downloads or '?'}")
+        _out(f"      ModOrganizer.exe -> {inst.exe or 'not found'}")
+    if not found.mo2:
+        _out("   none found" + ("" if args.deep else " (try: detect --deep)"))
     _out("Vortex:")
-    d = default_downloads(settings.game)
-    _out(f"  downloads -> {d} {'(exists)' if d and d.exists() else '(not found)'}")
-    exes = [p for p in default_exe_candidates() if p.is_file()]
-    _out(f"  Vortex.exe -> {exes[0] if exes else 'not found (pass --vortex-exe)'}")
+    _out(f"   Vortex.exe -> {found.vortex.exe or 'not found'}")
+    root = found.vortex.downloads_root
+    _out(f"   downloads -> {found.vortex.game_downloads(settings.game) if root else 'not found'}")
+    if found.timed_out:
+        _out("(The drive search ran out of time; raise --budget to look further.)")
+    if args.save:
+        best = found.best_mo2()
+        if best:
+            settings.mo2_instance = str(best.instance_dir)
+            settings.mo2_exe = str(best.exe or "")
+        if found.vortex.exe:
+            settings.vortex_exe = str(found.vortex.exe)
+        if root:
+            settings.vortex_downloads = str(root)
+        _out(f"Saved to {settings.save()}")
     return 0
+
+
+def _auto_fill(settings: Settings) -> None:
+    """Fill blank MO2 / Vortex paths from a quick look around the PC."""
+    if settings.manager == "mo2" and settings.mo2_instance and settings.mo2_exe:
+        return
+    if settings.manager == "vortex" and settings.vortex_exe:
+        return
+    found = finder.find(deep=False)
+    if settings.manager == "mo2":
+        best = found.best_mo2()
+        if best and not settings.mo2_instance:
+            settings.mo2_instance = str(best.instance_dir)
+            _out(f"Using MO2 setup: {best.describe()}")
+        elif not settings.mo2_instance and len(found.mo2) > 1:
+            _out("Several MO2 setups found; pick one with --mo2-instance:")
+            for inst in found.sorted_mo2():
+                _out(f"   {inst.describe()}")
+        if not settings.mo2_exe:
+            chosen = next((m for m in found.mo2 if settings.mo2_instance
+                           and str(m.instance_dir) == settings.mo2_instance), None)
+            exe = (chosen.exe if chosen else None) or (found.mo2_exes[0] if found.mo2_exes else None)
+            if exe:
+                settings.mo2_exe = str(exe)
+    else:
+        if found.vortex.exe:
+            settings.vortex_exe = str(found.vortex.exe)
 
 
 def _apply_overrides(args, settings: Settings) -> None:
@@ -217,6 +255,7 @@ def cmd_run(args, settings: Settings) -> int:
         _out("Direct downloads need Premium. Use --mode handoff instead.")
         return 1
 
+    _auto_fill(settings)
     try:
         target = make_target(settings.manager, settings.game, **settings.target_paths())
     except ManagerError as err:
@@ -292,7 +331,12 @@ def build_parser() -> argparse.ArgumentParser:
     login = sub.add_parser("login", help="save your Nexus API key")
     login.add_argument("--key", help="the key (otherwise you're asked for it)")
 
-    sub.add_parser("detect", help="show the MO2 instances and Vortex folders found")
+    detect = sub.add_parser("detect", help="find MO2 and Vortex on this PC")
+    detect.add_argument("--deep", action="store_true",
+                        help="also search your drives (finds portable / Wabbajack installs)")
+    detect.add_argument("--budget", type=float, default=60.0,
+                        help="seconds the drive search may take (default 60)")
+    detect.add_argument("--save", action="store_true", help="remember what was found")
 
     run = sub.add_parser("run", help="download every mod in a list")
     run.add_argument("list", help="text file of Nexus links / nxm links / mod numbers")

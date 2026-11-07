@@ -15,7 +15,8 @@ from .config import Settings, choices_path, load_choices, save_choices
 from .engine import (DONE, missing_requirements, FAILED, SENT, SKIPPED, STOPPED, WORKING, Job, ModPlan, Runner,
                      jobs_for, resolve, summary)
 from .links import parse_list
-from .managers import ManagerError, find_instances, make_target
+from . import finder
+from .managers import ManagerError, make_target
 from .nexus import NexusClient, NexusError
 from .selection import human_size, visible_options
 
@@ -93,7 +94,7 @@ class App:
                           ("mo2_instance", "mo2_exe", "mo2_downloads", "vortex_downloads", "vortex_exe")}
         self.path_rows = {
             "mo2": [
-                ("MO2 instance folder", "mo2_instance", "dir"),
+                ("MO2 instance (folder with ModOrganizer.ini)", "mo2_instance", "dir"),
                 ("ModOrganizer.exe", "mo2_exe", "exe"),
                 ("Downloads folder (blank = instance's)", "mo2_downloads", "dir"),
             ],
@@ -102,8 +103,14 @@ class App:
                 ("Vortex.exe (blank = default)", "vortex_exe", "exe"),
             ],
         }
+        found = ttk.Frame(mgr)
+        found.pack(fill="x", padx=6, pady=(0, 6))
+        self.find_btn = ttk.Button(found, text="\U0001F50D Find automatically",
+                                   command=lambda: self.find_folders(deep=True))
+        self.find_btn.pack(side="left")
         self.where_var = tk.StringVar()
-        ttk.Label(mgr, textvariable=self.where_var, foreground="#555").pack(fill="x", padx=8, pady=(0, 6))
+        ttk.Label(found, textvariable=self.where_var, foreground="#555").pack(side="left", fill="x", padx=8)
+        self.found: finder.Findings | None = None
 
         # List
         lst = ttk.LabelFrame(outer, text="3. Mod list (Nexus links, nxm:// links or mod numbers, one per line)")
@@ -179,8 +186,9 @@ class App:
         for row, (label, key, what) in enumerate(self.path_rows[kind]):
             ttk.Label(self.paths, text=label + ":").grid(row=row, column=0, sticky="w", pady=2)
             if key == "mo2_instance":
-                names = [str(p) for p in find_instances()]
+                names = [str(m.instance_dir) for m in self.found.sorted_mo2()] if self.found else []
                 widget = ttk.Combobox(self.paths, textvariable=self.path_vars[key], values=names)
+                widget.bind("<<ComboboxSelected>>", lambda e: self._instance_picked())
             else:
                 widget = ttk.Entry(self.paths, textvariable=self.path_vars[key])
             widget.grid(row=row, column=1, sticky="we", padx=6)
@@ -188,6 +196,79 @@ class App:
                        command=lambda k=key, w=what: self._browse(k, w)).grid(row=row, column=2)
         self.paths.columnconfigure(1, weight=1)
         self.install_check.configure(state="normal" if kind == "vortex" else "disabled")
+        self._update_where()
+
+    # -- finding MO2 / Vortex -------------------------------------------------
+
+    def find_folders(self, deep: bool) -> None:
+        """Search this PC for MO2 / Vortex and fill in the folders."""
+        interactive = deep
+
+        def work():
+            found = finder.find(deep=deep, budget=60.0,
+                                progress=lambda msg: self.events.put(("where", msg)))
+            self.events.put(("found", (found, interactive)))
+        if deep:
+            self.where_var.set("Searching this PC for Mod Organizer 2 and Vortex\u2026")
+        self._background(work)
+
+    def _apply_found(self, found: "finder.Findings", interactive: bool) -> None:
+        self.found = found
+        filled: list[str] = []
+        v = self.path_vars
+
+        # MO2: the instance (and its exe).
+        instances = found.sorted_mo2()
+        if instances and (interactive or not v["mo2_instance"].get()):
+            pick = found.best_mo2()
+            if pick is None and interactive:
+                pick = pick_one(self.root, "Which MO2 setup?",
+                                "More than one Mod Organizer 2 setup was found. Pick the one "
+                                "for Skyrim Special / Anniversary Edition:",
+                                instances, lambda m: m.describe())
+            elif pick is None:
+                pick = instances[0] if instances[0].is_skyrim_se else None
+            if pick:
+                v["mo2_instance"].set(str(pick.instance_dir))
+                filled.append(f"MO2 instance: {pick.describe()}")
+                if pick.exe and (interactive or not v["mo2_exe"].get()):
+                    v["mo2_exe"].set(str(pick.exe))
+                    filled.append(f"ModOrganizer.exe: {pick.exe}")
+        elif found.mo2_exes and (interactive or not v["mo2_exe"].get()):
+            v["mo2_exe"].set(str(found.mo2_exes[0]))
+            filled.append(f"ModOrganizer.exe: {found.mo2_exes[0]}")
+
+        # Vortex: exe and downloads folder.
+        vx = found.vortex
+        if vx.exe and (interactive or not v["vortex_exe"].get()):
+            v["vortex_exe"].set(str(vx.exe))
+            filled.append(f"Vortex.exe: {vx.exe}")
+        if vx.downloads_root and (interactive or not v["vortex_downloads"].get()):
+            v["vortex_downloads"].set(str(vx.downloads_root))
+            filled.append(f"Vortex downloads: {vx.downloads_root}")
+
+        self._manager_changed()  # refresh the instance list and "Downloads go to"
+        if interactive:
+            if filled:
+                more = ""
+                if found.timed_out:
+                    more = "\n\n(The drive search stopped after a minute; use Browse if something's missing.)"
+                messagebox.showinfo("Found", "Filled in:\n\n" + "\n".join(filled) + more, parent=self.root)
+            else:
+                messagebox.showinfo(
+                    "Nothing found",
+                    "Couldn't find Mod Organizer 2 or Vortex on this PC.\n\n"
+                    "Use Browse to pick the folders yourself: for MO2, the folder with "
+                    "ModOrganizer.ini in it.", parent=self.root)
+
+    def _instance_picked(self) -> None:
+        """Choosing an instance from the list also fills in its ModOrganizer.exe."""
+        if not self.found:
+            return
+        chosen = self.path_vars["mo2_instance"].get()
+        for inst in self.found.mo2:
+            if str(inst.instance_dir) == chosen and inst.exe:
+                self.path_vars["mo2_exe"].set(str(inst.exe))
         self._update_where()
 
     def _browse(self, key: str, what: str) -> None:
@@ -224,6 +305,8 @@ class App:
             self._read_list(self.list_path)
         if self.key_var.get():
             self.login(quiet=True)
+        # Fill in whatever's still blank from a quick look around (registry, usual places).
+        self.find_folders(deep=False)
 
     def _save_settings(self) -> None:
         s = self.settings
@@ -263,6 +346,7 @@ class App:
         self.busy = busy
         state = "disabled" if busy else "normal"
         self.lookup_btn.configure(state=state)
+        self.find_btn.configure(state=state)
         self.start_btn.configure(state=state)
         self.stop_btn.configure(state="normal" if busy else "disabled")
 
@@ -287,6 +371,10 @@ class App:
                                         + (f", {waiting} have options to choose" if waiting else "")
                                         + ". Checking requirements\u2026")
                     self._check_requirements()
+                elif kind == "where":
+                    self.where_var.set(payload)
+                elif kind == "found":
+                    self._apply_found(*payload)
                 elif kind == "requirements":
                     self._requirements_done(*payload)
                 elif kind == "job":
@@ -676,6 +764,37 @@ class App:
         self.cancel.set()
         self._save_settings()
         self.root.destroy()
+
+
+def pick_one(master, title: str, prompt: str, items: list, describe):
+    """A small list to choose one item from; returns the item or None."""
+    win = tk.Toplevel(master)
+    win.title(title)
+    win.geometry("720x320")
+    win.transient(master)
+    win.grab_set()
+    ttk.Label(win, text=prompt, wraplength=680).pack(anchor="w", padx=12, pady=(12, 6))
+    box = tk.Listbox(win, activestyle="dotbox")
+    for item in items:
+        box.insert("end", describe(item))
+    box.pack(fill="both", expand=True, padx=12)
+    box.selection_set(0)
+    result = {"item": None}
+
+    def ok(_event=None):
+        sel = box.curselection()
+        if sel:
+            result["item"] = items[sel[0]]
+        win.destroy()
+
+    btns = ttk.Frame(win)
+    btns.pack(fill="x", padx=12, pady=12)
+    ttk.Button(btns, text="Use this one", command=ok).pack(side="right")
+    ttk.Button(btns, text="Cancel", command=win.destroy).pack(side="right", padx=6)
+    box.bind("<Double-1>", ok)
+    box.bind("<Return>", ok)
+    win.wait_window()
+    return result["item"]
 
 
 class ChoiceDialog(tk.Toplevel):

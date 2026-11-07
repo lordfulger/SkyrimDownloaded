@@ -34,7 +34,10 @@ VORTEX_GAME_IDS = {
 
 
 def default_downloads(game: str) -> Path | None:
-    base = env_path("APPDATA", "Vortex", "downloads")
+    """Vortex's downloads folder for a game: the one set in Vortex's settings if
+    it can be read, otherwise Vortex's default."""
+    from ..finder import vortex_saved_downloads_root
+    base = vortex_saved_downloads_root() or env_path("APPDATA", "Vortex", "downloads")
     return base / VORTEX_GAME_IDS.get(game, game) if base else None
 
 

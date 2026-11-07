@@ -46,16 +46,20 @@ The key is stored encrypted with your Windows login (DPAPI) in `%APPDATA%\Skyrim
 ## Using the window
 
 1. **Nexus account:** paste your key and log in.
-2. **Mod manager:** pick MO2 or Vortex and one of the two modes.
-   - **MO2:** choose your instance folder.
-     - Global instances live in `%LOCALAPPDATA%\ModOrganizer\<name>`; the drop-down lists the ones it finds.
-     - For a portable install, choose the folder `ModOrganizer.exe` is in.
-     - The downloads folder is read from the instance's `ModOrganizer.ini`.
-     - For "Mod manager downloads", also point it at `ModOrganizer.exe`.
-   - **Vortex:**
-     - Leave the paths blank if Vortex is installed in the usual place and uses its default downloads folder (`%APPDATA%\Vortex\downloads\skyrimse`).
-     - If you moved the downloads folder (Vortex → Settings → Downloads), choose it here. Either the main folder or its `skyrimse` folder works.
-   - "Downloads go to: …" shows where files will land.
+2. **Mod manager:** pick MO2 or Vortex and one of the two modes, then press **🔍 Find automatically**.
+   - It searches this PC for Mod Organizer 2 and Vortex and fills in the folders. If you have more than one Skyrim setup, it asks which one to use.
+   - A quick version of the search also runs every time the program starts, filling in anything left blank.
+   - "Downloads go to: …" shows where files will land. Use **Browse…** if the search picked the wrong place or found nothing.
+
+   **What the MO2 instance folder is:** an *instance* is one complete MO2 setup: one game, with its own mods, profiles, downloads and settings. Its folder is the one with `ModOrganizer.ini` in it. That file says which game the instance is for and where its `mods`, `profiles` and `downloads` folders are. The tool reads it to know where downloads go, and to check the instance is for Skyrim SE/AE.
+   - **Global instances** (made with MO2's "Create a new instance") live in `%LOCALAPPDATA%\ModOrganizer\<name>`.
+   - **Portable instances** (and every Wabbajack list) are the folder `ModOrganizer.exe` itself is in.
+   - The instance shown in MO2's title bar is the one to pick.
+
+   **How the search works:**
+   - It checks which program opens `nxm://` links and the installed-programs list in the registry.
+   - It looks at MO2's global instances and Vortex's own settings, which include a moved downloads folder.
+   - It searches your drives a few folders deep for `ModOrganizer.exe`, `Vortex.exe` and the marker file Vortex keeps in its downloads folder. This step stops after a minute.
 3. **Mod list:** open a `.txt` file, or type or paste links into the box. Then press **Look up mods**.
 4. **Choose options:** for every mod with more than one file, a window steps you through them one at a time. Tick the files you want, or choose **Leave this mod out**. You can change any choice later in the list.
    - Tick or untick a file by clicking its box or double-clicking the file.
@@ -104,7 +108,7 @@ python -m skyrimdl login
 ```
 
 ```bash
-python -m skyrimdl detect
+python -m skyrimdl detect --deep --save
 ```
 
 ```bash
@@ -115,7 +119,7 @@ python -m skyrimdl run my-mods.txt --manager mo2 --mo2-instance "Skyrim AE" --mo
 python -m skyrimdl run my-mods.txt --manager vortex --mode direct
 ```
 
-`login` saves your API key and `detect` shows the MO2 instances and Vortex folders it finds.
+`login` saves your API key. `detect --deep --save` searches the PC for MO2 and Vortex and remembers what it finds. Without `--deep`, it only does the quick search. `run` also fills in any blank paths by itself.
 
 Useful flags for `run`:
 
@@ -157,6 +161,7 @@ skyrimdl/
   engine.py      look up a list, find missing requirements, run downloads / handoffs
   downloader.py  resumable download with retries
   managers/      mo2.py (.meta files, ModOrganizer.ini), vortex.py (Vortex CLI)
+  finder.py      find MO2 instances, ModOrganizer.exe, Vortex.exe and its downloads folder
   config.py      settings, DPAPI-protected API key, saved choices
   cli.py, gui.py command line and Tk window
 ```

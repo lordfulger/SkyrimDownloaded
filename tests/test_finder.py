@@ -25,9 +25,13 @@ class FinderTests(unittest.TestCase):
         self.roaming = self.tmp / "AppData"
         env = {"LOCALAPPDATA": str(self.local), "APPDATA": str(self.roaming),
                "ProgramFiles": str(self.tmp / "PF"), "ProgramW6432": str(self.tmp / "PF")}
-        patcher = mock.patch.dict(os.environ, env)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for patcher in (mock.patch.dict(os.environ, env),
+                        # don't walk the real drives or read the real registry
+                        mock.patch.object(finder, "fixed_drives", lambda: []),
+                        mock.patch.object(finder, "_registry_values", lambda: []),
+                        mock.patch.object(finder.Path, "home", lambda: self.tmp / "home")):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
         # A Wabbajack-style portable MO2 for Skyrim AE.
         self.portable = self.drive / "Wabbajack" / "Nolvus"

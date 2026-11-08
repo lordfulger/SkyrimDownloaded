@@ -11,7 +11,9 @@ It works like a Vortex Collection, but the "collection" is your own list of link
 - **Reads any list of links.** Nexus page links, links to a specific file (`?tab=files&file_id=…`), `nxm://` links, or bare mod numbers all work. You can paste a whole guide (a Reddit post or a web page) and every Nexus link in it is picked up.
 - **Shows the download options.** If a mod has several current files, you choose which to get. Each file's description is shown so you can tell "Performance 1K" from "2K" without opening the site.
 - **Remembers your answers.** They're saved beside your list (`<list>.choices.json`), so running the list again doesn't ask the same questions.
-- **Checks requirements.** If a mod in your list needs another mod that isn't in it (SKSE, Address Library…), it tells you and offers to add it. Requirements that aren't on Nexus are listed so you can get them yourself.
+- **Checks requirements.** If a mod in your list needs another mod that isn't in it (SKSE, Address Library…), it shows a link to that mod's Nexus page, ready to add with one click. Requirements that aren't on Nexus, and DLC or Creations, are listed so you can get them yourself.
+  - The links appear after **Look up mods**, at the top of each mod's options window ("Needs"), and in the info panel.
+  - **Add to list** adds the mod, and it's looked up straight away.
 - **Skips what you already have.** Files already in the mod manager's downloads folder aren't downloaded again.
 - **Handles problems.** Removed mods, deleted files, and files replaced by a newer version are flagged instead of stopping the run. Downloads resume after a dropped connection. The Nexus API limit is respected.
 

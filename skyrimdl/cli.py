@@ -234,7 +234,7 @@ def _check_requirements(client, plans, list_path, remembered, args, settings):
         _out("Requirements missing from your list:")
         for m in addable:
             note = f" - {m.requirement.notes}" if m.requirement.notes else ""
-            _out(f"  - {m.requirement.name}  (needed by {', '.join(m.needed_by)}){note}")
+            _out(f"  - {m.requirement.name}  (needed by {', '.join(m.needed_by)}){note}\n      {m.link}")
         if args.add_requirements:
             add = True
         elif args.yes:

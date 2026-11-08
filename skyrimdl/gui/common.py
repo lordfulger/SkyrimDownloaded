@@ -56,6 +56,14 @@ def file_status(opt, suggested: str | None = None) -> str:
     return " \u00b7 ".join(bits)
 
 
+def link_label(parent, text: str, url: str):
+    """A clickable link that opens ``url`` in the browser."""
+    label = ttk.Label(parent, text=text, style="Link.TLabel", cursor="hand2")
+    if url:
+        label.bind("<Button-1>", lambda e: webbrowser.open(url))
+    return label
+
+
 def pick_one(master, title: str, prompt: str, items: list, describe):
     """A small list to choose one item from; returns the item or None."""
     win = tk.Toplevel(master)

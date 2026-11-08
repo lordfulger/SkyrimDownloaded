@@ -13,13 +13,16 @@ class ChoiceDialog(tk.Toplevel):
 
     def __init__(self, master, plans: list[ModPlan], include_old: bool, include_other: bool = False, *,
                  suggestions: dict | None = None, warnings: dict | None = None,
-                 title: str = "Choose options", start: int = 0):
+                 title: str = "Choose options", start: int = 0,
+                 requirement_rows=None, add_requirement=None):
         super().__init__(master)
         self.plans = list(plans)
         self.include_old = include_old
         self.include_other = include_other
         self.suggestions = suggestions or {}
         self.warnings = warnings or {}
+        self.requirement_rows = requirement_rows or (lambda plan: [])
+        self.add_requirement = add_requirement
         # skipped for now (including skips from an earlier visit)
         self.later: list[ModPlan] = [p for p in self.plans if p.reason.startswith("skipped for now")]
         self.index = min(max(0, start), len(self.plans) - 1)
@@ -100,6 +103,7 @@ class ChoiceDialog(tk.Toplevel):
             if opt and opt not in options:
                 options.append(opt)
         suggested = self.suggestions.get(id(plan), {})
+        self._show_needs(plan)
         for opt in options:
             if opt.category_label != last_cat:
                 last_cat = opt.category_label
@@ -124,6 +128,44 @@ class ChoiceDialog(tk.Toplevel):
             self.autoscroll.attach(w)
         if getattr(self.master, "_theme", None):
             self.master._theme.paint(self)
+
+    def _show_needs(self, plan) -> None:
+        """What this mod needs, with a link to each mod and Add to list for missing ones."""
+        rows = self.requirement_rows(plan)
+        if not rows:
+            return
+        ttk.Label(self.inner, text="Needs", font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(4, 2))
+        for r in rows:
+            line = ttk.Frame(self.inner)
+            line.pack(anchor="w", fill="x", padx=(8, 0), pady=1)
+            if r["status"] == "listed":
+                ttk.Label(line, text="\u2713", style="Good.TLabel").pack(side="left")
+                link_label(line, r["name"], r["url"]).pack(side="left", padx=4)
+                ttk.Label(line, text="in your list", style="Muted.TLabel").pack(side="left")
+            elif r["status"] == "missing":
+                ttk.Label(line, text="\u2717", style="Warn.TLabel").pack(side="left")
+                link_label(line, r["name"], r["url"]).pack(side="left", padx=4)
+                ttk.Label(line, text="not in your list", style="Warn.TLabel").pack(side="left")
+                if self.add_requirement:
+                    btn = ttk.Button(line, text="Add to list")
+
+                    def add(b=btn, row=r):
+                        added = self.add_requirement(row["url"], plan.title)
+                        b.configure(text="Added \u2713" if added else "Already in your list", state="disabled")
+                    btn.configure(command=add)
+                    btn.pack(side="left", padx=8)
+            elif r["status"] == "dlc":
+                ttk.Label(line, text="\u25c6").pack(side="left")
+                ttk.Label(line, text=f"{r['name']} (DLC / Creation - make sure you have it)").pack(side="left", padx=4)
+            else:
+                ttk.Label(line, text="\u2192").pack(side="left")
+                if r["url"]:
+                    link_label(line, r["name"], r["url"]).pack(side="left", padx=4)
+                else:
+                    ttk.Label(line, text=r["name"]).pack(side="left", padx=4)
+                ttk.Label(line, text="not on Nexus - get it yourself", style="Muted.TLabel").pack(side="left")
+            if r.get("notes"):
+                ttk.Label(self.inner, text=r["notes"], style="Muted.TLabel", wraplength=680).pack(anchor="w", padx=34)
 
     def _ticked(self) -> list[int]:
         return [fid for var, fid in self.vars if var.get()]
@@ -179,6 +221,84 @@ class ChoiceDialog(tk.Toplevel):
             self.commit()
         self.autoscroll.stop()
         self.grab_release()
+        self.destroy()
+
+
+class RequirementsDialog(tk.Toplevel):
+    """Mods your list needs but doesn't have: a link to each, tick the ones to add."""
+
+    def __init__(self, master, missing: list):
+        super().__init__(master)
+        self.chosen: list = []
+        self.title("Missing requirements")
+        self.geometry("820x500")
+        self.transient(master)
+        self.grab_set()
+        addable = [m for m in missing if not m.requirement.external and not m.requirement.dlc]
+        outside = [m for m in missing if m.requirement.external and not m.requirement.dlc]
+        dlc = [m for m in missing if m.requirement.dlc]
+        head = (f"{len(addable)} mod(s) your list needs but doesn't have" if addable
+                else "Your mods need these too")
+        ttk.Label(self, text=head, style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
+        ttk.Label(self, text="Click a name to open its Nexus page. Ticked mods are added to your list and "
+                             "looked up.", style="Muted.TLabel").pack(anchor="w", padx=12)
+        body = ttk.Frame(self)
+        body.pack(fill="both", expand=True, padx=12, pady=8)
+        canvas = tk.Canvas(body, highlightthickness=0, yscrollincrement=18)
+        sb = ttk.Scrollbar(body, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        self.vars = []
+
+        def section(title):
+            ttk.Label(inner, text=title, font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(8, 2))
+
+        def row(m, ticked: bool | None):
+            line = ttk.Frame(inner)
+            line.pack(anchor="w", fill="x", pady=1)
+            if ticked is not None:
+                var = tk.BooleanVar(value=ticked)
+                ttk.Checkbutton(line, variable=var).pack(side="left")
+                self.vars.append((var, m))
+            else:
+                ttk.Label(line, text="\u25c6" if m.requirement.dlc else "\u2192").pack(side="left", padx=(4, 0))
+            if m.link and not m.link.startswith("dlc:"):
+                link_label(line, m.requirement.name, m.link).pack(side="left", padx=4)
+            else:
+                ttk.Label(line, text=m.requirement.name).pack(side="left", padx=4)
+            ttk.Label(line, text=f"needed by {', '.join(m.needed_by)[:90]}", style="Muted.TLabel").pack(side="left")
+            if m.requirement.notes:
+                ttk.Label(inner, text=m.requirement.notes, style="Muted.TLabel", wraplength=740).pack(anchor="w", padx=30)
+
+        if addable:
+            section("On Nexus - tick to add to your list")
+            for m in addable:
+                row(m, True)
+        if outside:
+            section("Not on Nexus - get these yourself")
+            for m in outside:
+                row(m, None)
+        if dlc:
+            section("Game content (DLC / Creations) - make sure you have it")
+            for m in dlc:
+                row(m, None)
+        wheel_scroll(canvas, inner)
+        AutoScroll(canvas, also=tuple(inner.winfo_children()))
+        btns = ttk.Frame(self)
+        btns.pack(fill="x", padx=12, pady=(0, 12))
+        ttk.Button(btns, text="Not now" if addable else "OK", command=self.destroy).pack(side="right")
+        if addable:
+            ttk.Button(btns, text="Add ticked to list \u25b6", style="Accent.TButton",
+                       command=self._add).pack(side="right", padx=6)
+        if getattr(master, "_theme", None):
+            master._theme.paint(self)
+
+    def _add(self) -> None:
+        self.chosen = [m for var, m in self.vars if var.get()]
         self.destroy()
 
 

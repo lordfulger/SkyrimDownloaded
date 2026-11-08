@@ -239,18 +239,33 @@ class PlanMixin:
                 put("\nLinks with your other mods\n", "h")
                 for n in notes[:12]:
                     put(f"\u2022 {n}\n")
-        reqs = None
-        if mod:
-            key = f"req:{plan.entry.game}/{plan.entry.mod_id}"
-            reqs = (self.client._cache.get(key) if self.client else None) or self._req_cache.get(key)
-        if reqs:
-            have = {p.entry.mod_id for p in self.plans}
+        rows = self.requirement_rows(plan) if mod else []
+        if rows:
             put("\nRequirements on Nexus\n", "h")
-            for r in reqs:
-                mark, tag = ("\u2713 in your list", "good") if r.mod_id in have else (
-                    ("not on Nexus", "meta") if r.external else ("not in your list", "warn"))
-                put(f"\u2022 {r.name} ")
-                put(f"({mark})\n", tag)
+            for r in rows:
+                put("\u2022 ")
+                if r["url"]:
+                    link(r["name"], r["url"])
+                else:
+                    put(r["name"])
+                mark, tag = {"listed": ("in your list", "good"), "missing": ("not in your list", "warn"),
+                             "dlc": ("DLC / Creation - make sure you have it", "meta"),
+                             "outside": ("not on Nexus - get it yourself", "meta")}[r["status"]]
+                put(f"  ({mark})", tag)
+                if r["status"] == "missing":
+                    put("  ")
+                    tag_name = f"add{len(self._links)}"
+                    self._links[tag_name] = r["url"]
+                    t.insert("end", "Add to list", ("link", tag_name))
+
+                    def add(_e, url=r["url"], p=plan):
+                        self.add_requirement_to_list(url, p.title)
+                        self._render_info(p, opt)
+                        self.lookup_if_added()
+                    t.tag_bind(tag_name, "<Button-1>", add)
+                    t.tag_bind(tag_name, "<Enter>", lambda e: t.configure(cursor="hand2"))
+                    t.tag_bind(tag_name, "<Leave>", lambda e: t.configure(cursor="arrow"))
+                put("\n")
         if mod and not opt:
             if mod.summary:
                 put("\nSummary\n", "h")
@@ -326,9 +341,13 @@ class PlanMixin:
         dlg = ChoiceDialog(self.root, plans, self.old_var.get(), self.other_var.get(),
                            suggestions=report.suggestions() if report else {},
                            warnings=report.warnings() if report else {},
-                           title="Review linked mods" if review else "Choose options", start=start)
+                           title="Review linked mods" if review else "Choose options", start=start,
+                           requirement_rows=self.requirement_rows,
+                           add_requirement=self.add_requirement_to_list)
         dlg.wait_window()
         self._fill_tree()
+        if self.lookup_if_added():  # requirements were added from the window: look them up
+            return
         if review:
             return
         left = [p for p in self.plans if p.needs_choice and not p.error]

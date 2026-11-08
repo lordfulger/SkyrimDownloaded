@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .common import *  # noqa: F401,F403
-from .dialogs import ChoiceDialog, CompatDialog, UpdatesDialog
+from .dialogs import ChoiceDialog, CompatDialog, RequirementsDialog, UpdatesDialog
 
 
 class ListMixin:
@@ -141,51 +141,76 @@ class ListMixin:
             self.events.put(("requirements", (missing, checked)))
         self._background(work)
 
+    # -- requirements: what each mod needs, and adding what's missing ------------
+
+    def requirement_rows(self, plan: ModPlan) -> list[dict]:
+        """A mod's requirements on Nexus, each with a link and whether it's in the list."""
+        key = f"req:{plan.entry.game}/{plan.entry.mod_id}"
+        reqs = (self.client._cache.get(key) if self.client else None) or self._req_cache.get(key) or []
+        listed = self._listed_mods()
+        rows = []
+        for r in reqs:
+            url = r.url or (f"https://www.nexusmods.com/{plan.entry.game}/mods/{r.mod_id}" if r.mod_id else "")
+            if r.dlc:
+                status = "dlc"
+            elif r.external or not r.mod_id:
+                status = "outside"
+            else:
+                status = "listed" if (plan.entry.game, r.mod_id) in listed else "missing"
+            rows.append({"name": r.name, "url": url, "notes": r.notes, "status": status,
+                         "needed_by": plan.title})
+        return rows
+
+    def _listed_mods(self) -> set:
+        """(game, mod id) of every mod in the list, including ones added but not looked up yet."""
+        entries, _ = parse_list(self.list_text.get("1.0", "end-1c"), self.settings.game)
+        return {(e.game, e.mod_id) for e in entries} | {(p.entry.game, p.entry.mod_id) for p in self.plans}
+
+    def add_requirement_to_list(self, url: str, needed_by: str) -> bool:
+        """Add a required mod to the list (looked up once the current window closes)."""
+        entries, _ = parse_list(url, self.settings.game)
+        if not entries or (entries[0].game, entries[0].mod_id) in self._listed_mods():
+            return False
+        body = self.list_text.get("1.0", "end-1c").rstrip("\n")
+        if "# Added requirements" not in body:
+            body += "\n\n# Added requirements"
+        body += f"\n{url}    # required by {needed_by[:80]}"
+        self.list_text.delete("1.0", "end")
+        self.list_text.insert("1.0", body + "\n")
+        if self.list_path and getattr(self, "_list_was_saved", False):
+            try:
+                self.list_path.write_text(self.list_text.get("1.0", "end-1c"), encoding="utf-8")
+            except OSError:
+                pass
+        self.declined.add(url)
+        self._pending_lookup = True
+        self.status_var.set(f"Added {url.rsplit('/', 1)[-1]} to the list - it's looked up next.")
+        log.info("Added requirement %s (needed by %s)", url, needed_by)
+        return True
+
+    def lookup_if_added(self) -> bool:
+        """Look the list up again if requirements were added (cheap: the rest is saved)."""
+        if getattr(self, "_pending_lookup", False):
+            self._pending_lookup = False
+            self.root.after(50, self.lookup)
+            return True
+        return False
+
     def _requirements_done(self, missing, checked) -> None:
         waiting = sum(1 for p in self.plans if p.needs_choice and not p.error)
         self.status_var.set(f"{len(self.plans)} mods looked up"
                             + (f", {waiting} have options to choose" if waiting else "")
                             + ("" if checked else " (couldn't check requirements)"))
-        addable = [m for m in missing if not m.requirement.external and m.link not in self.declined]
-        external = [m for m in missing if m.requirement.external and not m.requirement.dlc
-                    and m.link not in self.declined]
-        dlc = [m for m in missing if m.requirement.dlc and m.link not in self.declined]
-        if dlc:
-            self.declined.update(m.link for m in dlc)
-            external = external + dlc
-        if addable or external:
-            lines = []
-            if addable:
-                lines.append("These mods need others that aren't in your list:\n")
-                lines += [f"\u2022 {m.requirement.name}  (needed by {', '.join(m.needed_by)})"
-                          + (f"\n     {m.requirement.notes}" if m.requirement.notes else "")
-                          for m in addable[:25]]
-            outside = [m for m in external if not m.requirement.dlc]
-            if outside:
-                lines.append("\nNot on Nexus, get these yourself:")
-                lines += [f"\u2022 {m.requirement.name}: {m.link}" for m in outside[:10]]
-            content = [m for m in external if m.requirement.dlc]
-            if content:
-                lines.append("\nGame content these mods need (DLC / Creations) - make sure you have it:")
-                lines += [f"\u2022 {m.requirement.name}  (for {', '.join(m.needed_by)})"
-                          + (f" - {m.requirement.notes}" if m.requirement.notes else "") for m in content[:10]]
-            self.declined.update(m.link for m in external)
-            if addable:
-                lines.append("\nAdd the missing Nexus mods to the list?")
-                add = messagebox.askyesno("Missing requirements", "\n".join(lines), parent=self._parent())
-                self.declined.update(m.link for m in addable)
-                if add:
-                    text = "\n# Added requirements\n" + "\n".join(
-                        f"{m.link}    # required by {', '.join(m.needed_by)[:80]}" for m in addable)
-                    body = self.list_text.get("1.0", "end-1c").rstrip("\n")
-                    self.list_text.delete("1.0", "end")
-                    self.list_text.insert("1.0", body + "\n" + text + "\n")
-                    if self.list_path and self._list_was_saved:
-                        self.list_path.write_text(self.list_text.get("1.0", "end-1c"), encoding="utf-8")
-                    self.root.after(50, self.lookup)
-                    return
-            else:
-                messagebox.showinfo("Requirements", "\n".join(lines), parent=self._parent())
+        new = [m for m in missing if m.link not in self.declined]
+        if new:
+            dlg = RequirementsDialog(self.root, new)
+            dlg.wait_window()
+            self.declined.update(m.link for m in new)  # don't ask about these again
+            for m in dlg.chosen:
+                self.add_requirement_to_list(m.link, ", ".join(m.needed_by))
+            if self.lookup_if_added():
+                return
         if waiting:
             self.root.after(50, self.walk_choices)
+
 

@@ -80,6 +80,11 @@ class Theme:
         s.configure("TLabel", background=c["bg"], foreground=c["fg"])
         s.configure("Muted.TLabel", foreground=c["muted"])
         s.configure("Good.TLabel", foreground=c["done"])
+        if not hasattr(self, "_link_font"):
+            from tkinter import font as tkfont
+            self._link_font = tkfont.nametofont("TkDefaultFont").copy()
+            self._link_font.configure(underline=True)
+        s.configure("Link.TLabel", foreground=c["accent"], font=self._link_font)
         s.configure("Warn.TLabel", foreground=c["error"])
         s.configure("Title.TLabel", font=("TkDefaultFont", 13, "bold"))
         s.configure("TLabelframe", background=c["bg"], bordercolor=c["border"])

@@ -1,5 +1,7 @@
 # SkyrimDownloaded
 
+<p align="center"><img src="assets/logo.png" alt="SkyrimDownloaded" width="480"></p>
+
 Give it a list of Nexus Mods links and it gets every mod into **Mod Organizer 2** or **Vortex** for Skyrim Special/Anniversary Edition, using your own Nexus account (Premium).
 
 It works like a Vortex Collection, but the "collection" is your own list of links. When a mod has more than one file to choose from (1K or 2K textures, main file plus optional patches, and so on), it shows you those options, just as the mod's Files tab would. You tick what you want, and it remembers your choices for next time.
@@ -228,6 +230,14 @@ Your work is saved as you go and when you close the app. Next time it opens, eve
 **Save progress** saves straight away if you want to be sure. **List ▾ → Start over** clears everything for a new list; a list you saved to a file stays on disk.
 
 The saved work is in `%APPDATA%\SkyrimDownloaded\session.json`. It holds what Nexus said when you last looked the mods up, so press **Look up mods** to refresh it if a while has passed. Your choices are kept.
+
+## ESL and packed versions are preferred
+
+Some mods offer the same file in more than one form: a regular plugin and an **ESL** (light) one, or **loose** files and a **packed** (BSA/BA2) archive. When files are just variants of each other, only one is ticked:
+
+- **ESL beats regular, and packed beats loose.** Better Container Controls for SkyUI gets `BCC-SkyUI-ESL-v31`, not both of its files.
+- **How variants are spotted:** their names match once those words are taken out, or an optional file's description says it's an alternative to the main file ("don't use both").
+- **It never doubles up:** this applies to the first pick, to `| all` and `| main`, and to auto-ticked patches.
 
 ## Patches for mods in your list are ticked by themselves
 

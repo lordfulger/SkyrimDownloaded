@@ -220,6 +220,10 @@ def check(plans, client=None, *, workers: int = 4) -> Report:
                     continue
                 o_pats = pats[id(other)]
                 in_name = _mentions(f"{opt.name} {opt.file_name}", o_pats, set(), other.entry.mod_id)
+                if in_name and _mentions(plan.mod.name, o_pats, set(), other.entry.mod_id):
+                    # e.g. "Better Container Controls for SkyUI": every file says SkyUI because
+                    # the mod itself is for SkyUI - that doesn't make them patches.
+                    in_name = []
                 desc_spots = _mentions(opt.description, o_pats, ids, other.entry.mod_id)
                 patchy = any(_PATCHY.search("".join(_context(opt.description, s))) for s in desc_spots)
                 if not in_name and not (other.entry.mod_id in ids or patchy):
@@ -285,7 +289,7 @@ def patches_to_tick(report, skip=lambda plan, file_id: False) -> list:
       mod (v1.0, v1.2...), only the newest; none if you already picked one yourself;
     * ``skip`` says no for ones you unticked before.
     """
-    from .selection import MAIN, MISC, OPTIONAL
+    from .selection import MAIN, MISC, OPTIONAL, siblings, variant_score
     best: dict = {}
     for f in report.by_kind(PATCH):
         plan, fid = f.plan, f.file_id
@@ -294,8 +298,10 @@ def patches_to_tick(report, skip=lambda plan, file_id: False) -> list:
                 or opt.category not in (MAIN, OPTIONAL, MISC) or opt.fit.hidden
                 or _NOT_FOR_AUTO.search(f"{opt.name} {opt.file_name}")):
             continue
+        if any(s.file_id in plan.selected for s in siblings(opt, plan.options)):
+            continue  # a variant of it (ESL / packed / loose) is already ticked
         key = (id(plan), id(f.other))
-        if key in best and best[key][1].uploaded >= opt.uploaded:
+        if key in best and (variant_score(best[key][1]), best[key][1].uploaded) >= (variant_score(opt), opt.uploaded):
             continue
         best[key] = (plan, opt, f.other)
     picks = []

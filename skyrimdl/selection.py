@@ -8,6 +8,7 @@ picking options in a collection. A rule in the list (``| primary``,
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from .gameversion import Fit, GameTarget, fit
@@ -170,6 +171,72 @@ def _rank(f: FileOption) -> int:
     return {"ok": 0, "unknown": 1}.get(f.fit.status, 2)
 
 
+# -- variants of the same file: ESL or not, packed (BSA) or loose -----------------------
+
+_ESL = re.compile(r"\b(?:esl(?:[- ]?(?:flagged|ified|version|plugin))?|espfe|light ?plugin)\b", re.I)
+_PACKED = re.compile(r"\b(?:bsa|ba2|packed|archived?)\b", re.I)
+_LOOSE = re.compile(r"\bloose(?: ?files?)?\b", re.I)
+_ALTERNATIVE = re.compile(r"alternative (?:to|version of)|instead of the main|(?:don'?t|do not) use both|"
+                          r"use (?:only )?one of (?:them|these)|replaces? the main", re.I)
+_VARIANT_WORDS = re.compile(r"\b(?:esl(?:[- ]?(?:flagged|ified|version|plugin))?|espfe|light|plugins?|bsa|ba2|"
+                            r"packed|archived?|loose|files?|version|edition|ver)\b", re.I)
+
+
+def variant_key(opt: FileOption) -> str:
+    """The file's name without the ESL / BSA / loose words: variants share it."""
+    text = re.sub(r"[-_.()\[\]+]", " ", opt.name.lower())
+    text = _VARIANT_WORDS.sub(" ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def variant_score(opt: FileOption) -> int:
+    """Higher is better: ESL-flagged beats regular, packed (BSA) beats loose."""
+    text = f"{opt.name} {opt.file_name}"
+    return (2 if _ESL.search(text) else 0) + (1 if _PACKED.search(text) else 0) - (1 if _LOOSE.search(text) else 0)
+
+
+def _is_variant_kind(opt: FileOption) -> bool:
+    text = f"{opt.name} {opt.file_name}"
+    return bool(_ESL.search(text) or _PACKED.search(text) or _LOOSE.search(text))
+
+
+def siblings(opt: FileOption, files: list[FileOption]) -> list[FileOption]:
+    """Other files that are the same thing in another form (use one, not both)."""
+    key = variant_key(opt)
+    out = []
+    for o in files:
+        if o.file_id == opt.file_id or o.category not in CURRENT or o.fit.hidden:
+            continue
+        same_name = bool(key) and variant_key(o) == key and (_is_variant_kind(o) or _is_variant_kind(opt))
+        said_so = ((o.category != MAIN and opt.category == MAIN and o.description and _ALTERNATIVE.search(o.description)
+                    and _is_variant_kind(o) and opt.is_primary)
+                   or (opt.category != MAIN and o.category == MAIN and opt.description
+                       and _ALTERNATIVE.search(opt.description) and _is_variant_kind(opt) and o.is_primary))
+        if same_name or said_so:
+            out.append(o)
+    return out
+
+
+def prefer_variants(files: list[FileOption], selected: list[int]) -> list[int]:
+    """Swap each picked file for its best variant (ESL, then packed), never two of a kind."""
+    by_id = {f.file_id: f for f in files}
+    result: list[int] = []
+    taken: set[int] = set()
+    for fid in selected:
+        opt = by_id.get(fid)
+        if opt is None:
+            result.append(fid)
+            continue
+        if fid in taken:
+            continue
+        group = [opt] + siblings(opt, files)
+        best = max(group, key=lambda o: (variant_score(o), o.is_primary, o.uploaded))
+        taken.update(o.file_id for o in group)
+        if best.file_id not in result:
+            result.append(best.file_id)
+    return result
+
+
 def primary_file(files: list[FileOption]) -> FileOption | None:
     current = [f for f in files if f.category in CURRENT]
     if not current:
@@ -248,12 +315,12 @@ def choose(entry: ListEntry, files: list[FileOption], remembered: list[int] | No
 
     if rule.mode == "main":
         mains = [f.file_id for f in current if f.category == MAIN] or [current[0].file_id]
-        return Choice(mains, False, "all main files" + note)
+        return Choice(prefer_variants(files, mains), False, "all main files" + note)
     if rule.mode == "all":
-        return Choice([f.file_id for f in current], False, "all current files" + note)
+        return Choice(prefer_variants(files, [f.file_id for f in current]), False, "all current files" + note)
 
     best = primary_file(files)
-    selected = [best.file_id] if best else []
+    selected = prefer_variants(files, [best.file_id]) if best else []
     if rule.mode == "primary":
         return Choice(selected, False, "primary file" + note)
     if rule.mode == "ask":

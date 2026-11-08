@@ -46,6 +46,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.theme.apply()
         self._load_settings()
         root.report_callback_exception = self._callback_error
+        self._set_window_icon()
         # Tk must only ever be touched from this thread. Python's cycle collector can run on
         # any thread and would then delete Tk variables/images of closed dialogs from a
         # background thread - which crashes or freezes Tk. So collect here, on a timer.
@@ -501,6 +502,19 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                 self.save_session()
         except tk.TclError:
             pass
+
+    def _set_window_icon(self) -> None:
+        """The logo in the title bar and taskbar (when assets/logo.png is in the project)."""
+        base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+        for name in ("icon.png", "logo.png"):
+            path = base / "assets" / name
+            if path.is_file():
+                try:
+                    self._icon = tk.PhotoImage(file=str(path))
+                    self.root.iconphoto(True, self._icon)
+                except tk.TclError:
+                    continue
+                return
 
     def maximize(self) -> None:
         """Fill the screen (the window's maximize button)."""

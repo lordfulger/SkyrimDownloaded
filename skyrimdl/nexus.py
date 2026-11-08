@@ -26,12 +26,16 @@ API_BASE = "https://api.nexusmods.com/v1"
 REQUIREMENTS_QUERY = """
 query modRequirements($modId: Int!, $gameDomainName: String!) {
   modRequirements(modId: $modId, gameDomainName: $gameDomainName) {
+    dlcRequirements { gameExpansion { id name } notes }
     nexusRequirements(count: 50) {
       nodes { id gameId modId modName notes url externalRequirement }
     }
   }
 }
 """
+# The same without DLC, in case Nexus ever stops accepting that part.
+REQUIREMENTS_QUERY_NO_DLC = REQUIREMENTS_QUERY.replace(
+    "    dlcRequirements { gameExpansion { id name } notes }\n", "")
 APP_NAME = "SkyrimDownloaded"
 USER_AGENT = f"{APP_NAME}/{__version__} (Python; mod list downloader)"
 
@@ -104,6 +108,7 @@ class Requirement:
     url: str
     notes: str = ""
     external: bool = False   # not on Nexus (e.g. a download from another site)
+    dlc: bool = False        # game content: a DLC or Creation Club / Creations item
 
 
 @dataclass
@@ -141,7 +146,9 @@ class ModInfo:
 
 class NexusClient:
     def __init__(self, api_key: str, *, base_url: str = API_BASE, timeout: float = 30.0,
-                 max_retries: int = 4):
+                 max_retries: int = 4, disk_cache=None, refresh: bool = False):
+        """``disk_cache`` (a nexuscache.DiskCache) keeps answers between runs; with
+        ``refresh`` it isn't read from (but still updated)."""
         if not api_key or not api_key.strip():
             raise AuthError("No Nexus API key. Paste your personal API key first.")
         self.api_key = api_key.strip()
@@ -153,6 +160,10 @@ class NexusClient:
         self._cache: dict[str, object] = {}
         self._lock = threading.Lock()
         self._account: Account | None = None
+        self.disk_cache = disk_cache
+        self.refresh = refresh
+        self.requests_made = 0    # v1 API requests sent (these count against the limit)
+        self.requests_saved = 0   # answered from what was saved earlier
 
     # -- plumbing ---------------------------------------------------------
 
@@ -173,11 +184,21 @@ class NexusClient:
         if cache:
             with self._lock:
                 if url in self._cache:
+                    self.requests_saved += 1
                     return self._cache[url]
+            if self.disk_cache is not None and not params and not self.refresh:
+                data = self.disk_cache.get(path)
+                if data is not None:
+                    with self._lock:
+                        self._cache[url] = data
+                        self.requests_saved += 1
+                    return data
         attempt = 0
         while True:
             attempt += 1
             req = urllib.request.Request(url, headers=self._headers())
+            with self._lock:
+                self.requests_made += 1
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     self.rate.update(resp.headers)
@@ -186,6 +207,8 @@ class NexusClient:
                 if cache:
                     with self._lock:
                         self._cache[url] = data
+                    if self.disk_cache is not None and not params:
+                        self.disk_cache.put(path, data)
                 return data
             except urllib.error.HTTPError as err:
                 self.rate.update(err.headers or {})
@@ -214,6 +237,19 @@ class NexusClient:
     def _forget(self, path: str) -> None:
         with self._lock:
             self._cache.pop(self.base_url + path, None)
+        if self.disk_cache is not None:
+            self.disk_cache.forget(path)
+
+    def is_saved(self, game: str, mod_id: int) -> bool:
+        """Is this mod's page and Files tab saved from an earlier lookup (so free to look up)?"""
+        if self.disk_cache is None or self.refresh:
+            return False
+        return (self.disk_cache.has(f"/games/{game}/mods/{int(mod_id)}.json")
+                and self.disk_cache.has(f"/games/{game}/mods/{int(mod_id)}/files.json"))
+
+    def estimate_lookup(self, keys: list[tuple[str, int]]) -> int:
+        """About how many API requests looking these mods up will use."""
+        return sum(0 if self.is_saved(g, m) else 2 for g, m in keys)
 
     # -- endpoints --------------------------------------------------------
 
@@ -281,23 +317,28 @@ class NexusClient:
 
 
     def requirements(self, game: str, mod_id: int) -> list[Requirement] | None:
-        """The mod's "Requirements" list, or None if Nexus couldn't say."""
+        """The mod's "Requirements" list (other mods, and DLC / Creations), or None
+        if Nexus couldn't say."""
         cache_key = f"req:{game}/{mod_id}"
         with self._lock:
             if cache_key in self._cache:
                 return self._cache[cache_key]
-        body = json.dumps({"query": REQUIREMENTS_QUERY,
-                           "variables": {"modId": int(mod_id), "gameDomainName": game}}).encode()
-        headers = dict(self._headers(), **{"Content-Type": "application/json"})
-        req = urllib.request.Request(self.graphql_url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            nodes = data["data"]["modRequirements"]["nexusRequirements"]["nodes"]
-        except Exception:
+        if self.disk_cache is not None and not self.refresh:
+            saved = self.disk_cache.get(cache_key)
+            if saved is not None:
+                out = [Requirement(**r) for r in saved]
+                with self._lock:
+                    self._cache[cache_key] = out
+                return out
+        data = None
+        for query in (REQUIREMENTS_QUERY, REQUIREMENTS_QUERY_NO_DLC):
+            data = self._graphql(query, {"modId": int(mod_id), "gameDomainName": game})
+            if data is not None:
+                break
+        if data is None:
             return None
         out = []
-        for node in nodes or []:
+        for node in ((data.get("nexusRequirements") or {}).get("nodes") or []):
             try:
                 mid = node.get("modId")
                 out.append(Requirement(
@@ -309,9 +350,33 @@ class NexusClient:
                 ))
             except (TypeError, ValueError, AttributeError):
                 continue
+        for node in data.get("dlcRequirements") or []:
+            try:
+                name = ((node.get("gameExpansion") or {}).get("name") or "").strip()
+            except AttributeError:
+                continue
+            if name:
+                out.append(Requirement(mod_id=None, name=name, url="", notes=node.get("notes") or "",
+                                       external=True, dlc=True))
         with self._lock:
             self._cache[cache_key] = out
+        if self.disk_cache is not None:
+            from dataclasses import asdict
+            self.disk_cache.put(cache_key, [asdict(r) for r in out])
         return out
+
+    def _graphql(self, query: str, variables: dict):
+        """The ``modRequirements`` part of a v2 answer, or None if the query failed."""
+        body = json.dumps({"query": query, "variables": variables}).encode()
+        headers = dict(self._headers(), **{"Content-Type": "application/json"})
+        req = urllib.request.Request(self.graphql_url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            result = (data.get("data") or {}).get("modRequirements")
+            return result if isinstance(result, dict) else None
+        except Exception:
+            return None
 
 
 def _error_message(err: urllib.error.HTTPError) -> str:

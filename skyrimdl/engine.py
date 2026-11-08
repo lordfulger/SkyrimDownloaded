@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -98,7 +100,7 @@ class MissingRequirement:
 
     @property
     def link(self) -> str:
-        return self.requirement.url
+        return self.requirement.url or f"dlc:{self.requirement.name}"
 
 
 def missing_requirements(client: NexusClient, plans: list[ModPlan], *,
@@ -122,7 +124,8 @@ def missing_requirements(client: NexusClient, plans: list[ModPlan], *,
                 continue
             if not req.external and not req.mod_id:
                 continue
-            key = f"ext:{req.url or req.name}" if req.external else f"{plan.entry.game}/{req.mod_id}"
+            key = (f"dlc:{req.name}" if req.dlc else f"ext:{req.url or req.name}" if req.external
+                   else f"{plan.entry.game}/{req.mod_id}")
             if not req.url and not req.external:
                 req.url = f"https://www.nexusmods.com/{plan.entry.game}/mods/{req.mod_id}"
             if key in found:
@@ -131,7 +134,9 @@ def missing_requirements(client: NexusClient, plans: list[ModPlan], *,
             else:
                 found[key] = MissingRequirement([plan.title], req)
     # Nexus mods first (they can be added), then outside downloads.
-    return sorted(found.values(), key=lambda m: (m.requirement.external, m.requirement.name.lower())), checked
+    # Nexus mods first (they can be added), then outside downloads, then DLC / Creations.
+    return sorted(found.values(), key=lambda m: (m.requirement.dlc, m.requirement.external,
+                                                 m.requirement.name.lower())), checked
 
 
 # -- carrying it out ---------------------------------------------------------
@@ -185,6 +190,9 @@ class Runner:
         self._launch_lock = threading.Lock()
 
     def _emit(self, job: Job, state: str | None = None, note: str | None = None) -> None:
+        if state is not None and state != job.state and state in (FAILED, DONE, SENT):
+            log = logging.getLogger("skyrimdl")
+            (log.warning if state == FAILED else log.info)("%s: %s %s", job.label, state, note or "")
         if state is not None:
             job.state = state
         if note is not None:

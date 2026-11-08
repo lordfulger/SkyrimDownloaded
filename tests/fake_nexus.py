@@ -196,6 +196,11 @@ REQUIREMENTS = {
 }
 
 
+DLC_REQUIREMENTS = {
+    1000: [{"gameExpansion": {"id": "1", "name": "Fishing"}, "notes": "for the fishing rods"}],
+}
+
+
 def _post(self):
     length = int(self.headers.get("Content-Length") or 0)
     body = json.loads(self.rfile.read(length) or b"{}")
@@ -204,7 +209,12 @@ def _post(self):
         return self._json(500, {"errors": [{"message": "down"}]})
     mod_id = body.get("variables", {}).get("modId")
     nodes = REQUIREMENTS.get(mod_id, [])
-    return self._json(200, {"data": {"modRequirements": {"nexusRequirements": {"nodes": nodes}}}})
+    result = {"nexusRequirements": {"nodes": nodes}}
+    if "dlcRequirements" in body.get("query", ""):
+        if self.server.state.get("dlc_unsupported"):
+            return self._json(200, {"errors": [{"message": "Cannot query field dlcRequirements"}], "data": None})
+        result["dlcRequirements"] = DLC_REQUIREMENTS.get(mod_id, [])
+    return self._json(200, {"data": {"modRequirements": result}})
 
 
 Handler.do_POST = _post

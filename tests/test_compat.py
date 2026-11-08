@@ -58,7 +58,7 @@ class CheckTests(unittest.TestCase):
     def test_mods_not_in_list_are_ignored(self):
         plans = [p for p in self.plans if p.title in ("Pretty Textures", "SkyUI")]
         report = compat.check(plans, self.client)
-        self.assertEqual({f.kind for f in report.findings}, {compat.NEEDS})
+        self.assertEqual({f.kind for f in report.findings}, {compat.NEEDS, compat.DLC})
 
     def test_without_requirements(self):
         report = compat.check(self.plans, None)

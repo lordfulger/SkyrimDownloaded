@@ -51,6 +51,7 @@ class ChoiceDialog(tk.Toplevel):
         self.canvas.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
         self.autoscroll = AutoScroll(self.canvas)
+        wheel_scroll(self.canvas, self.inner)
 
         btns = ttk.Frame(self)
         btns.pack(fill="x", padx=12, pady=(0, 12))
@@ -117,8 +118,8 @@ class ChoiceDialog(tk.Toplevel):
                 ttk.Label(self.inner, text=desc, wraplength=700, style="Muted.TLabel").pack(anchor="w", padx=24)
             self.vars.append((var, opt.file_id))
         self.canvas.yview_moveto(0)
-        # Wheel and middle-click scrolling anywhere over the list of files.
-        wheel_scroll(self.canvas, self.inner)
+        # Wheel and middle-click scrolling anywhere over the list of files (new widgets only).
+        wheel_scroll(self.canvas, *self.inner.winfo_children(), include_target=False)
         for w in self.inner.winfo_children():
             self.autoscroll.attach(w)
         if getattr(self.master, "_theme", None):
@@ -268,9 +269,9 @@ class CompatDialog(tk.Toplevel):
         text.tag_configure("warn", foreground=c["error"])
         text.tag_configure("good", foreground=c["done"])
         icons = {compat.CONFLICT: ("\u26a0 ", "warn"), compat.PATCH: ("\u2605 ", "good"),
-                 compat.NEEDS: ("\u2192 ", ""), compat.WORKS_WITH: ("\u2713 ", "good"),
+                 compat.NEEDS: ("\u2192 ", ""), compat.DLC: ("\u25c6 ", ""), compat.WORKS_WITH: ("\u2713 ", "good"),
                  compat.MENTIONS: ("\u2022 ", "meta")}
-        for kind in (compat.CONFLICT, compat.PATCH, compat.NEEDS, compat.WORKS_WITH, compat.MENTIONS):
+        for kind in (compat.CONFLICT, compat.PATCH, compat.NEEDS, compat.DLC, compat.WORKS_WITH, compat.MENTIONS):
             items = report.by_kind(kind)
             if not items:
                 continue
@@ -282,7 +283,7 @@ class CompatDialog(tk.Toplevel):
                     ticked = f.file_id in f.plan.selected
                     text.insert("end", "  (ticked)" if ticked else "  (not ticked yet)", "meta")
                 text.insert("end", "\n")
-                if f.evidence and kind not in (compat.NEEDS,):
+                if f.evidence and kind not in (compat.NEEDS, compat.DLC):
                     text.insert("end", f"      \u201c{f.evidence[:160]}\u201d\n", "meta")
         if not report.requirements_checked:
             text.insert("end", "\n(Couldn't ask Nexus for requirements this time.)\n", "meta")

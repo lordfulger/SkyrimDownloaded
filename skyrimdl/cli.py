@@ -216,11 +216,17 @@ def _check_requirements(client, plans, list_path, remembered, args, settings):
             _out("(Couldn't ask Nexus for mod requirements; skipping that check.)")
             return plans
         addable = [m for m in missing if not m.requirement.external and m.link not in declined]
-        external = [m for m in missing if m.requirement.external]
+        external = [m for m in missing if m.requirement.external and not m.requirement.dlc]
+        dlc = [m for m in missing if m.requirement.dlc]
         if _round == 0 and external:
             _out("Requirements that aren't on Nexus (get these yourself):")
             for m in external:
                 _out(f"  - {m.requirement.name} {m.link}  (for {', '.join(m.needed_by)})")
+        if _round == 0 and dlc:
+            _out("Game content these mods need (DLC / Creations) - make sure you have it:")
+            for m in dlc:
+                note = f" - {m.requirement.notes}" if m.requirement.notes else ""
+                _out(f"  - {m.requirement.name}  (for {', '.join(m.needed_by)}){note}")
         if not addable:
             return plans
         _out("Requirements missing from your list:")
@@ -256,7 +262,7 @@ def _compat_report(client, plans, args) -> None:
         _out("\nCompatibility: no links found between the mods in your list.")
         return
     _out(f"\nCompatibility: {len(report.findings)} link(s) between your mods")
-    for kind in (compat.CONFLICT, compat.PATCH, compat.NEEDS, compat.WORKS_WITH, compat.MENTIONS):
+    for kind in (compat.CONFLICT, compat.PATCH, compat.NEEDS, compat.DLC, compat.WORKS_WITH, compat.MENTIONS):
         items = report.by_kind(kind)
         if not items:
             continue

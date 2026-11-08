@@ -63,8 +63,14 @@ def _plan_from(d: dict) -> ModPlan:
     )
 
 
-def save(path: Path, *, list_text: str, list_path: str, plans: list[ModPlan], report=None,
-         requirements: dict[str, list[Requirement]] | None = None, declined=(), ui: dict | None = None) -> None:
+def save(path: Path, **parts) -> None:
+    write(path, snapshot(**parts))
+
+
+def snapshot(*, list_text: str, list_path: str, plans: list[ModPlan], report=None,
+             requirements: dict[str, list[Requirement]] | None = None, declined=(),
+             ui: dict | None = None) -> dict:
+    """The work in progress as plain data (quick; writing it out is the slow part)."""
     index = {id(p): i for i, p in enumerate(plans)}
     findings = []
     if report is not None:
@@ -84,6 +90,10 @@ def save(path: Path, *, list_text: str, list_path: str, plans: list[ModPlan], re
         "declined": sorted(declined),
         "ui": ui or {},
     }
+    return data
+
+
+def write(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data), encoding="utf-8")

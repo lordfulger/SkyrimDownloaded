@@ -44,6 +44,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self._build()
         self.theme.apply()
         self._load_settings()
+        root.report_callback_exception = self._callback_error
         root.after(100, self._pump)
         root.protocol("WM_DELETE_WINDOW", self._close)
 
@@ -62,11 +63,22 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.nexus_btn.pack(side="left")
         self.account_var = tk.StringVar(value="Not logged in")
         ttk.Label(top_row, textvariable=self.account_var).pack(side="left", padx=10)
+        self.requests_var = tk.StringVar(value="")
+        ttk.Label(top_row, textvariable=self.requests_var, style="Muted.TLabel").pack(side="left", padx=6)
         self.theme_var = tk.StringVar(value=self.settings.theme if self.settings.theme in theme_mod.MODES
                                       else "System")
         theme_box = ttk.Combobox(top_row, textvariable=self.theme_var, values=theme_mod.MODES,
                                  state="readonly", width=8)
         theme_box.pack(side="right")
+        help_btn = ttk.Menubutton(top_row, text="Help \u25be")
+        help_menu = tk.Menu(help_btn, tearoff=False)
+        help_menu.add_command(label="Copy debug info", command=self.copy_debug_info)
+        help_menu.add_command(label="Open log folder", command=self.open_log_folder)
+        help_menu.add_separator()
+        help_menu.add_command(label="Read the guide (README)",
+                              command=lambda: webbrowser.open("https://github.com/lordfulger/SkyrimDownloaded#readme"))
+        help_btn["menu"] = help_menu
+        help_btn.pack(side="right", padx=(8, 0))
         theme_box.bind("<<ComboboxSelected>>", lambda e: self._theme_changed())
         ttk.Label(top_row, text="Theme:").pack(side="right", padx=(0, 4))
 
@@ -168,6 +180,8 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.lookup_btn.pack(side="right")
         self.fresh_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(bar, text="Forget last choices", variable=self.fresh_var).pack(side="right", padx=8)
+        self.refresh_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(bar, text="Refresh from Nexus", variable=self.refresh_var).pack(side="right")
         box = ttk.Frame(lst)
         box.pack(fill="both", expand=True, padx=6, pady=(0, 6))
         self.list_text = tk.Text(box, height=5, wrap="none", undo=True, relief="flat",
@@ -280,73 +294,181 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.stop_btn.configure(state="normal" if busy else "disabled")
 
     def _pump(self) -> None:
+        """Hand results from background work to the window, every 150 ms.
+
+        It always keeps going: an error while handling one result is logged and
+        the rest carry on (a stopped pump would leave the window looking frozen)."""
         try:
             self._pump_once()
+        except Exception:
+            log.exception("while updating the window")
+        try:
+            self.root.after(150, self._pump)
         except tk.TclError:
-            return  # the window has been closed
-        self.root.after(150, self._pump)
+            pass  # the window has been closed
+
+    def copy_debug_info(self) -> None:
+        """Version, system, setup and the end of the log, ready to paste into a problem report."""
+        target = self._target_game()
+        extra = {
+            "Mod manager": f"{self.manager_var.get()} ({self.mode_var.get()})",
+            "Your Skyrim": target.describe(),
+            "Mods looked up": str(len(self.plans)),
+            "Saved Nexus data": f"{len(nexuscache.shared())} entries",
+            "Nexus requests": self.client.rate.describe() if self.client else "not logged in",
+        }
+        text = logs.debug_info(extra)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.status_var.set("Debug info copied - paste it into your message.")
+
+    def open_log_folder(self) -> None:
+        folder = logs.log_path().parent
+        folder.mkdir(parents=True, exist_ok=True)
+        if sys.platform == "win32":
+            os.startfile(str(folder))  # noqa: S606
+        else:
+            webbrowser.open(folder.as_uri())
+
+    def _parent(self):
+        """The window a message should sit on: an open dialog if there is one."""
+        try:
+            grab = self.root.grab_current()
+            if grab is not None and grab.winfo_exists():
+                return grab
+        except (tk.TclError, KeyError):
+            pass
+        return self.root
+
+    def _safe(self, fn, *args) -> None:
+        try:
+            fn(*args)
+        except Exception:
+            log.exception("in %s", getattr(fn, "__name__", fn))
+            self._oops()
+
+    def _oops(self) -> None:
+        try:
+            self.status_var.set("Something went wrong - it's in the log (Help \u25be > Copy debug info).")
+        except tk.TclError:
+            pass
+
+    def _callback_error(self, exc, value, tb) -> None:
+        """Errors in button clicks etc.: log them instead of losing them."""
+        log.error("Error in the window", exc_info=(exc, value, tb))
+        self._oops()
+
+    def _show_requests_left(self) -> None:
+        c = self.client
+        if c is None:
+            self.requests_var.set("")
+            return
+        r = c.rate
+        if r.daily_remaining is None and r.hourly_remaining is None:
+            text = ""
+        elif r.daily_remaining == 0:
+            text = f"Nexus requests: daily allowance used up - {r.hourly_remaining} left this hour"
+        else:
+            text = f"Nexus requests left: {r.daily_remaining:,} today"
+        if c.requests_saved:
+            text += f" \u00b7 {c.requests_saved:,} saved by reusing earlier lookups"
+        self.requests_var.set(text)
+
+    def _requests_ok(self, needed: int, what: str) -> bool:
+        """Warn before something would use more API requests than are left."""
+        r = self.client.rate if self.client else None
+        if not r or r.daily_remaining is None or needed <= 0:
+            return True
+        left = r.daily_remaining if r.daily_remaining > 0 else (r.hourly_remaining or 0)
+        if needed <= left:
+            return True
+        return messagebox.askyesno(
+            "Nexus requests", f"{what} needs about {needed:,} Nexus requests, and you have {left:,} left "
+            f"{'today' if r.daily_remaining else 'this hour'}.\n\nOnce the daily allowance is used up, "
+            "Nexus allows only about 100 an hour, so this would slow right down. Mods you've looked "
+            "up before cost nothing.\n\nGo ahead anyway?", parent=self._parent())
 
     def _pump_once(self) -> None:
-        dirty_jobs = set()
         try:
-            while True:
+            self._show_requests_left()
+        except Exception:
+            log.exception("showing requests left")
+        dirty_jobs = set()
+        for _ in range(500):  # don't hog the window if a lot arrives at once
+            try:
                 kind, payload = self.events.get_nowait()
-                if kind == "account":
-                    self.account_var.set(payload)
-                elif kind == "status":
-                    self.status_var.set(payload)
-                elif kind == "lookup-progress":
-                    done, total = payload
-                    self.progress.configure(maximum=total, value=done)
-                    self.status_var.set(f"Looked up {done} of {total} mods")
-                elif kind == "plans":
-                    self.plans = payload
-                    self.compat = None
-                    self._fill_tree()
-                    waiting = sum(1 for p in self.plans if p.needs_choice and not p.error)
-                    self.status_var.set(f"{len(self.plans)} mods looked up"
-                                        + (f", {waiting} have options to choose" if waiting else "")
-                                        + ". Checking requirements\u2026")
-                    self._check_requirements()
-                elif kind == "clipboard-login":
-                    self._clipboard_login_done(*payload)
-                elif kind == "where":
-                    self.where_var.set(payload)
-                elif kind == "updates":
-                    self._updates_done(*payload)
-                elif kind == "compat":
-                    self._compat_done(*payload)
-                elif kind == "games":
-                    self._games_found(*payload)
-                elif kind == "found":
-                    self._apply_found(*payload)
-                elif kind == "requirements":
-                    self._requirements_done(*payload)
-                elif kind == "job":
-                    dirty_jobs.add(id(payload))
-                elif kind == "finished":
-                    self._finished(payload)
-                elif kind == "error":
-                    messagebox.showerror("SkyrimDownloaded", payload, parent=self.root)
-                elif kind == "idle":
-                    self._set_busy(False)
-        except queue.Empty:
-            pass
+            except queue.Empty:
+                break
+            if kind == "job":
+                dirty_jobs.add(id(payload))
+                continue
+            try:
+                self._handle_event(kind, payload)
+            except Exception:
+                log.exception("handling %s", kind)
+                self._oops()
         if dirty_jobs:
-            self._refresh_jobs(dirty_jobs)
+            try:
+                self._refresh_jobs(dirty_jobs)
+            except Exception:
+                log.exception("refreshing download progress")
+
+    def _later(self, fn, *args) -> None:
+        """Run something that may open a dialog outside the pump, so the pump keeps going."""
+        self.root.after(0, lambda: self._safe(fn, *args))
+
+    def _handle_event(self, kind: str, payload) -> None:
+        if kind == "account":
+            self.account_var.set(payload)
+        elif kind == "status":
+            self.status_var.set(payload)
+        elif kind == "lookup-progress":
+            done, total = payload
+            self.progress.configure(maximum=total, value=done)
+            self.status_var.set(f"Looked up {done} of {total} mods")
+        elif kind == "plans":
+            self.plans = payload
+            self.compat = None
+            self._fill_tree()
+            waiting = sum(1 for p in self.plans if p.needs_choice and not p.error)
+            made, saved = getattr(self, "_lookup_cost", (0, 0))
+            cost = f" ({made} Nexus requests, {saved} saved by reusing earlier lookups)" if made or saved else ""
+            log.info("Looked up %d mods%s", len(self.plans), cost)
+            self.status_var.set(f"{len(self.plans)} mods looked up{cost}"
+                                + (f", {waiting} have options to choose" if waiting else "")
+                                + ". Checking requirements\u2026")
+            self._check_requirements()
+        elif kind == "where":
+            self.where_var.set(payload)
+        elif kind == "idle":
+            self._set_busy(False)
+        elif kind == "error":
+            log.error("Background error: %s", payload)
+            self._later(lambda: messagebox.showerror("SkyrimDownloaded", payload, parent=self._parent()))
+        else:
+            handler = {
+                "clipboard-login": self._clipboard_login_done, "updates": self._updates_done,
+                "compat": self._compat_done, "games": self._games_found, "found": self._apply_found,
+                "requirements": self._requirements_done, "finished": self._finished,
+            }.get(kind)
+            if handler is None:
+                log.warning("Unknown event %s", kind)
+            else:
+                self._later(handler, *payload) if isinstance(payload, tuple) else self._later(handler, payload)
 
     def _close(self) -> None:
         if self.busy and not messagebox.askyesno(
                 "Quit?", "Downloads are still going. Stop and quit? (Start again later "
-                "to pick up where it left off.)", parent=self.root):
+                "to pick up where it left off.)", parent=self._parent()):
             return
         self.cancel.set()
         self._save_settings()
-        self.save_session(now=True)
+        self.save_session(now=True, wait=True)
         self.root.destroy()
 
 
 def run_gui(settings: Settings) -> int:
+    logs.setup()
     root = tk.Tk()
     App(root, settings)
     root.mainloop()

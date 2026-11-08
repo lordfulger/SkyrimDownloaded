@@ -226,7 +226,7 @@ class PlanMixin:
         if not plans:
             if review:
                 return
-            messagebox.showinfo("SkyrimDownloaded", "No mods with options to choose.", parent=self.root)
+            messagebox.showinfo("SkyrimDownloaded", "No mods with options to choose.", parent=self._parent())
             return
         report = self.compat
         dlg = ChoiceDialog(self.root, plans, self.old_var.get(), self.other_var.get(),

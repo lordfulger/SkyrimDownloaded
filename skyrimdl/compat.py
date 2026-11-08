@@ -22,11 +22,13 @@ from dataclasses import dataclass, field
 from .text import bbcode_to_text, nexus_mod_ids
 
 NEEDS, PATCH, CONFLICT, WORKS_WITH, MENTIONS = "needs", "patch", "conflict", "works with", "mentions"
-ORDER = {CONFLICT: 0, PATCH: 1, NEEDS: 2, WORKS_WITH: 3, MENTIONS: 4}
+DLC = "dlc"
+ORDER = {CONFLICT: 0, PATCH: 1, NEEDS: 2, DLC: 3, WORKS_WITH: 4, MENTIONS: 5}
 HEADINGS = {
     CONFLICT: "Possible conflicts",
     PATCH: "Patches for other mods in your list",
     NEEDS: "Mods that rely on other mods in your list",
+    DLC: "Game content needed (DLC / Creations) - make sure you have it",
     WORKS_WITH: "Said to work with",
     MENTIONS: "Also mentioned on mod pages",
 }
@@ -98,10 +100,13 @@ class Report:
                 out.setdefault(id(f.other), []).append(f"{f.plan.title}'s page says it may conflict with this")
             elif f.kind == NEEDS:
                 out.setdefault(id(f.plan), []).append(f"needs {f.other.title}")
+            elif f.kind == DLC:
+                out.setdefault(id(f.plan), []).append(f"needs {f.evidence or 'game content'}")
         return out
 
     def notes_for(self, plan) -> list[str]:
-        return [f.text for f in self.findings if f.plan is plan or f.other is plan]
+        return [f.text for f in self.findings
+                if f.plan is plan or (f.other is plan and f.kind != DLC)]
 
 
 # -- recognising mods by name ---------------------------------------------------
@@ -170,14 +175,14 @@ def check(plans, client=None, *, workers: int = 4) -> Report:
 
     active = [p for p in plans if getattr(p, "mod", None) and not p.error and not p.skipped]
     report = Report()
-    if len(active) < 2:
+    if not active:
         return report
     pats = {id(p): _patterns(p.mod.name) for p in active}
     by_mod = {(p.entry.game, p.entry.mod_id): p for p in active}
     seen: set = set()
 
     def add(f: Finding) -> None:
-        if f.key not in seen and f.plan is not f.other:
+        if f.key not in seen and (f.plan is not f.other or f.kind == DLC):
             seen.add(f.key)
             report.findings.append(f)
 
@@ -190,6 +195,12 @@ def check(plans, client=None, *, workers: int = 4) -> Report:
                 continue
             report.requirements_checked = True
             for req in req_list:
+                if getattr(req, "dlc", False):
+                    note = f" ({req.notes})" if req.notes else ""
+                    f = Finding(DLC, plan, plan, f"{plan.title} needs {req.name}{note}", evidence=req.name)
+                    f.file_id = hash(req.name) & 0xFFFF  # one finding per DLC
+                    add(f)
+                    continue
                 other = by_mod.get((plan.entry.game, req.mod_id)) if req.mod_id else None
                 if other:
                     note = f" ({req.notes})" if req.notes else ""

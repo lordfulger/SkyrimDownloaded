@@ -11,12 +11,12 @@ class ToolsMixin:
         """Save the list with every choice locked in, for someone else to use."""
         if not self.plans:
             messagebox.showinfo("Share", "Look up the mods in your list first, so your choices can be "
-                                "saved with it.", parent=self.root)
+                                "saved with it.", parent=self._parent())
             return
         left = [p for p in self.plans if p.needs_choice and not p.error]
         if left and not messagebox.askyesno(
                 "Share", f"{len(left)} mod(s) still have options you haven't chosen; their ticked files "
-                "will be used. Share anyway?", parent=self.root):
+                "will be used. Share anyway?", parent=self._parent()):
             return
         base = self.list_path.stem if self.list_path else "my-mods"
         path = filedialog.asksaveasfilename(title="Share list", defaultextension=".txt",
@@ -27,16 +27,19 @@ class ToolsMixin:
         Path(path).write_text(sharing.export_text(self.plans, self._target_game(), title=Path(path).stem),
                               encoding="utf-8")
         messagebox.showinfo("Share", f"Saved {path}.\n\nSend it to anyone with SkyrimDownloaded: opening "
-                            "it and pressing Look up mods gives them exactly the same files.", parent=self.root)
+                            "it and pressing Look up mods gives them exactly the same files.", parent=self._parent())
 
     def check_for_updates(self) -> None:
         if not self.plans:
-            messagebox.showinfo("Updates", "Look up the mods in your list first.", parent=self.root)
+            messagebox.showinfo("Updates", "Look up the mods in your list first.", parent=self._parent())
             return
         if self.client is None:
-            messagebox.showinfo("Updates", "Log in first.", parent=self.root)
+            messagebox.showinfo("Updates", "Log in first.", parent=self._parent())
             return
         client, plans, target = self.client, list(self.plans), self._target_game()
+        todo = [p for p in plans if p.mod and not p.error and not p.skipped and p.selected]
+        if not self._requests_ok(2 * len(todo), f"Checking {len(todo)} mods for updates"):
+            return
         self.status_var.set("Checking Nexus for newer files…")
 
         def work():
@@ -53,7 +56,7 @@ class ToolsMixin:
             if errors:
                 msg += "\n\nCouldn't check:\n" + "\n".join(errors[:10])
             self.status_var.set("No updates.")
-            messagebox.showinfo("Updates", msg, parent=self.root)
+            messagebox.showinfo("Updates", msg, parent=self._parent())
             return
         self.status_var.set(f"{len(found)} update(s) found.")
         dlg = UpdatesDialog(self.root, found)
@@ -74,13 +77,13 @@ class ToolsMixin:
             else:
                 args = loot.command("vortex", self.settings.game)
         except ManagerError as err:
-            messagebox.showinfo("LOOT", str(err), parent=self.root)
+            messagebox.showinfo("LOOT", str(err), parent=self._parent())
             return
         try:
             import subprocess
             subprocess.Popen(args, close_fds=True)
         except OSError as err:
-            messagebox.showerror("LOOT", f"Couldn't start LOOT: {err}", parent=self.root)
+            messagebox.showerror("LOOT", f"Couldn't start LOOT: {err}", parent=self._parent())
             return
         how = "through Mod Organizer 2" if manager == "mo2" else "on its own"
         self.status_var.set(f"Opened LOOT {how}: press Sort Plugins, then Apply.")
@@ -88,7 +91,7 @@ class ToolsMixin:
     def check_compatibility(self, auto: bool) -> None:
         if not self.plans:
             if not auto:
-                messagebox.showinfo("SkyrimDownloaded", "Look up the mods in your list first.", parent=self.root)
+                messagebox.showinfo("SkyrimDownloaded", "Look up the mods in your list first.", parent=self._parent())
             return
         client, plans = self.client, list(self.plans)
         self.status_var.set("Checking how your mods relate to each other\u2026")
@@ -108,7 +111,7 @@ class ToolsMixin:
             if not auto:
                 messagebox.showinfo("Compatibility", "None of the mods in your list mention each other: "
                                     "no requirements, patches or conflicts between them were found.",
-                                    parent=self.root)
+                                    parent=self._parent())
             return
         review = CompatDialog(self.root, report)
         review.wait_window()

@@ -139,6 +139,21 @@ Tick the ones you want, then **Start downloads** to get them. The command line h
 - **Vortex:** Vortex sorts plugins itself (Plugins tab, **Sort now**). The button still opens LOOT on its own if you have it.
 - **Command line:** `python -m skyrimdl loot`
 
+## Nexus requests
+
+Nexus allows a personal API key about 2,500 requests a day; after that, only about 100 an hour. The window shows how many you have left next to your name.
+
+- **Looking up a mod costs about 2 requests.** What Nexus says is saved on your PC, so looking the same mod up again within 7 days costs nothing, whether it's the same list, a different list, or after a restart.
+- **Refresh from Nexus** (next to **Look up mods**) fetches fresh data when you want it.
+- **Check for updates** always asks Nexus.
+- **You're warned first** if something would need more requests than you have left.
+
+The saved data is in `%LOCALAPPDATA%\SkyrimDownloaded\nexus-cache.json`.
+
+## If something goes wrong
+
+**Help ▾ → Copy debug info** puts the app version, your setup and the end of the log on the clipboard, ready to paste into a problem report. Your API key is never included. **Open log folder** shows the log itself (`%LOCALAPPDATA%\SkyrimDownloaded\skyrimdl.log`).
+
 ## Picking up where you left off
 
 Your work is saved as you go and when you close the app. Next time it opens, everything is back where you left it:
@@ -304,5 +319,8 @@ skyrimdl/
   sharing.py     export a list with every choice locked in
   updates.py     newer files for the ones you picked
   loot.py        open LOOT (through MO2 for MO2 setups)
+  nexuscache.py  keep Nexus answers on disk to save API requests
+  logs.py        the log file and "Copy debug info"
+  gui/           the window, split by area (app.py ties it together)
   cli.py, gui.py command line and Tk window
 ```

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from __future__ import annotations
 
+import os
 import queue
+import sys
 import re
 import threading
 import time
@@ -23,7 +25,8 @@ from .. import finder
 from .. import theme as theme_mod
 from ..managers import ManagerError, make_target
 from ..nexus import NexusClient, NexusError
-from .. import compat, gameversion, loot, session, sharing, updates
+from .. import compat, gameversion, logs, loot, nexuscache, session, sharing, updates
+from ..logs import log
 from ..scrolling import AutoScroll, wheel_scroll
 from ..text import bbcode_to_text
 from ..engine import rechoose

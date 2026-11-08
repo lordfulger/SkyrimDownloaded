@@ -211,9 +211,11 @@ class ApiAndDownloadTests(unittest.TestCase):
         plans = resolve(self.client, parse_list("12604\n1000\n")[0])
         missing, checked = missing_requirements(self.client, plans)
         self.assertTrue(checked)
-        self.assertEqual([(m.requirement.name, m.requirement.external, m.needed_by) for m in missing],
-                         [("SKSE64", False, ["Pretty Textures"]),
-                          ("Some Outside Tool", True, ["Pretty Textures"])])
+        self.assertEqual([(m.requirement.name, m.requirement.external, m.requirement.dlc, m.needed_by)
+                          for m in missing],
+                         [("SKSE64", False, False, ["Pretty Textures"]),
+                          ("Some Outside Tool", True, False, ["Pretty Textures"]),
+                          ("Fishing", True, True, ["Pretty Textures"])])
         self.fake.state["graphql_down"] = True
         fresh = NexusClient(GOOD_KEY, base_url=self.fake.base)
         self.assertEqual(missing_requirements(fresh, plans), ([], False))

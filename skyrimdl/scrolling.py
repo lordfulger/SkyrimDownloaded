@@ -108,7 +108,7 @@ class AutoScroll:
         self._binds = []
 
 
-def wheel_scroll(target: tk.Widget, *areas: tk.Widget) -> None:
+def wheel_scroll(target: tk.Widget, *areas: tk.Widget, include_target: bool = True) -> None:
     """Scroll ``target`` with the mouse wheel whenever the pointer is over any of
     ``areas`` (the canvas and everything inside it)."""
 
@@ -130,5 +130,5 @@ def wheel_scroll(target: tk.Widget, *areas: tk.Widget) -> None:
         for child in w.winfo_children():
             bind_tree(child)
 
-    for area in (target, *areas):
+    for area in ((target,) if include_target else ()) + areas:
         bind_tree(area)

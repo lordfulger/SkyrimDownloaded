@@ -49,7 +49,7 @@ class PersistMixin:
         except OSError:
             pass
 
-    def save_session(self, now: bool = False) -> None:
+    def save_session(self, now: bool = False, wait: bool = False) -> None:
         """Save the work in progress (a moment after each change, and on close)."""
         if self._restoring:
             return
@@ -70,15 +70,39 @@ class PersistMixin:
             sash = self.panes.sashpos(0)
         except tk.TclError:
             sash = None
-        try:
-            session.save(
-                self.session_file, list_text=self.list_text.get("1.0", "end-1c"),
-                list_path=str(self.list_path or ""), plans=self.plans, report=self.compat,
-                requirements=reqs, declined=self.declined,
-                ui={"show_other": self.other_var.get(), "show_old": self.old_var.get(),
-                    "geometry": self.root.geometry(), "sash": sash})
-        except OSError as err:
-            self.status_var.set(f"Couldn't save your progress: {err}")
+        data = session.snapshot(
+            list_text=self.list_text.get("1.0", "end-1c"),
+            list_path=str(self.list_path or ""), plans=self.plans, report=self.compat,
+            requirements=reqs, declined=self.declined,
+            ui={"show_other": self.other_var.get(), "show_old": self.old_var.get(),
+                "geometry": self.root.geometry(), "sash": sash})
+        if wait:
+            self._write_session(data)
+            return
+        # Writing a big session takes a moment: do it off the window's thread, newest wins.
+        if getattr(self, "_session_q", None) is None:
+            self._session_q = queue.Queue()
+            threading.Thread(target=self._session_write_loop, daemon=True, name="session-writer").start()
+        self._session_q.put(data)
+
+    def _session_write_loop(self) -> None:
+        while True:
+            data = self._session_q.get()
+            while True:  # skip to the newest copy if several queued up
+                try:
+                    data = self._session_q.get_nowait()
+                except queue.Empty:
+                    break
+            self._write_session(data)
+
+    def _write_session(self, data) -> None:
+        lock = self.__dict__.setdefault("_session_lock", threading.Lock())
+        with lock:
+            try:
+                session.write(self.session_file, data)
+            except OSError as err:
+                log.warning("Couldn't save the session: %s", err)
+                self.events.put(("status", f"Couldn't save your progress: {err}"))
 
     def save_progress(self) -> None:
         self.save_session(now=True)
@@ -130,7 +154,7 @@ class PersistMixin:
     def start_over(self) -> None:
         if (self.plans or self.list_text.get("1.0", "end-1c").strip()) and not messagebox.askyesno(
                 "Start over", "Clear the mod list, the looked-up mods and your choices?\n\n"
-                "(A list you saved to a file stays on disk.)", parent=self.root):
+                "(A list you saved to a file stays on disk.)", parent=self._parent()):
             return
         self._restoring = True
         try:

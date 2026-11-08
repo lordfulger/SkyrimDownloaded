@@ -229,10 +229,16 @@ def vortex_saved_downloads_root() -> Path | None:
     best: tuple[float, int, str] | None = None
     try:
         files = [p for p in db.iterdir() if p.suffix.lower() in (".log", ".ldb")]
+        stamp = tuple(sorted((p.name, p.stat().st_size, p.stat().st_mtime) for p in files))
     except OSError:
         return None
-    for f in files:
+    if _vortex_memo.get("stamp") == stamp:  # unchanged since last time: don't read it all again
+        return _vortex_memo.get("result")
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    for f in files[:40]:
         try:
+            if f.stat().st_size > 16 * 1024 * 1024:  # the setting lives in the small recent files
+                continue
             data = f.read_bytes()
             mtime = f.stat().st_mtime
         except OSError:
@@ -249,11 +255,16 @@ def vortex_saved_downloads_root() -> Path | None:
             rank = (mtime, m.start(), value)
             if best is None or rank[:2] > best[:2]:
                 best = rank
-    if not best:
-        return None
-    value = best[2].replace("{USERDATA}", str(vortex_home)).replace("{userdata}", str(vortex_home))
-    path = Path(os.path.expandvars(value))
-    return path if path.is_dir() else None
+    result = None
+    if best:
+        value = best[2].replace("{USERDATA}", str(vortex_home)).replace("{userdata}", str(vortex_home))
+        path = Path(os.path.expandvars(value))
+        result = path if path.is_dir() else None
+    _vortex_memo.update(stamp=stamp, result=result)
+    return result
+
+
+_vortex_memo: dict = {}
 
 
 def fixed_drives() -> list[str]:

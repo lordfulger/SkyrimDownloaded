@@ -75,7 +75,7 @@ class ManagerMixin:
                 messagebox.showinfo(
                     "Detect", "Couldn't find SkyrimSE.exe to read its version.\n\nPick your version "
                     "from the list instead: the game's version is shown at the bottom left of "
-                    "the main menu.", parent=self.root)
+                    "the main menu.", parent=self._parent())
             return
         game = with_version[0]
         if not quiet and len({(g.version, g.store) for g in with_version}) > 1:
@@ -139,13 +139,13 @@ class ManagerMixin:
                 more = ""
                 if found.timed_out:
                     more = "\n\n(The drive search stopped after a minute; use Browse if something's missing.)"
-                messagebox.showinfo("Found", "Filled in:\n\n" + "\n".join(filled) + more, parent=self.root)
+                messagebox.showinfo("Found", "Filled in:\n\n" + "\n".join(filled) + more, parent=self._parent())
             else:
                 messagebox.showinfo(
                     "Nothing found",
                     "Couldn't find Mod Organizer 2 or Vortex on this PC.\n\n"
                     "Use Browse to pick the folders yourself: for MO2, the folder with "
-                    "ModOrganizer.ini in it.", parent=self.root)
+                    "ModOrganizer.ini in it.", parent=self._parent())
 
     def _instance_picked(self) -> None:
         """Choosing an instance from the list also fills in its ModOrganizer.exe."""

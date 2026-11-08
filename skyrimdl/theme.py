@@ -148,6 +148,9 @@ class Theme:
                                  highlightbackground=c["border"], highlightcolor=c["accent"])
             elif cls == "Canvas":
                 widget.configure(background=c["bg"])
+            elif cls == "Menu":
+                widget.configure(background=c["field"], foreground=c["fg"],
+                                 activebackground=c["select"], activeforeground=c["select_fg"])
             elif cls == "Treeview":
                 widget.tag_configure("choose", background=c["choose"])
                 widget.tag_configure("error", foreground=c["error"])

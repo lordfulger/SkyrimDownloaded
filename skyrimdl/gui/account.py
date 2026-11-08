@@ -37,7 +37,7 @@ class AccountMixin:
     def _try_clipboard_key(self, key: str) -> None:
         def work():
             try:
-                client = NexusClient(key)
+                client = NexusClient(key, disk_cache=nexuscache.shared())
                 acct = client.validate()
             except NexusError:
                 return  # not a key (or not this one): keep waiting
@@ -60,7 +60,7 @@ class AccountMixin:
         self.root.focus_force()
         if not acct.is_premium:
             messagebox.showwarning("SkyrimDownloaded", "This account isn't Premium. Nexus only gives "
-                                   "download links to tools for Premium accounts.", parent=self.root)
+                                   "download links to tools for Premium accounts.", parent=self._parent())
 
     def _stop_clipboard_watch(self, message: str) -> None:
         self._watching_clipboard = False
@@ -87,12 +87,12 @@ class AccountMixin:
             if not quiet:
                 messagebox.showinfo("SkyrimDownloaded",
                                     "Paste your personal API key from Nexus Mods first.\n\n"
-                                    "It's at the bottom of " + API_KEY_PAGE, parent=self.root)
+                                    "It's at the bottom of " + API_KEY_PAGE, parent=self._parent())
             return
 
         def work():
             try:
-                client = NexusClient(key)
+                client = NexusClient(key, disk_cache=nexuscache.shared())
                 acct = client.validate()
             except NexusError as err:
                 self.events.put(("account", f"Login failed: {err}"))

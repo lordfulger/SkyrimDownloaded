@@ -9,35 +9,35 @@ from .dialogs import ChoiceDialog, CompatDialog, UpdatesDialog
 class DownloadMixin:
     def start(self) -> None:
         if not self.plans:
-            messagebox.showinfo("SkyrimDownloaded", "Look up the mods in your list first.", parent=self.root)
+            messagebox.showinfo("SkyrimDownloaded", "Look up the mods in your list first.", parent=self._parent())
             return
         waiting = [p for p in self.plans if p.needs_choice and not p.error]
         if waiting and not messagebox.askyesno(
                 "Options not chosen",
                 f"{len(waiting)} mods have options you haven't looked at "
-                "(highlighted). Use the ticked files for them?", parent=self.root):
+                "(highlighted). Use the ticked files for them?", parent=self._parent()):
             self.walk_choices()
             return
         try:
             target = self._target()
         except ManagerError as err:
-            messagebox.showerror("SkyrimDownloaded", str(err), parent=self.root)
+            messagebox.showerror("SkyrimDownloaded", str(err), parent=self._parent())
             return
         mode = self.mode_var.get()
         issues = target.problems(mode)
         if issues:
-            messagebox.showerror("SkyrimDownloaded", "\n\n".join(issues), parent=self.root)
+            messagebox.showerror("SkyrimDownloaded", "\n\n".join(issues), parent=self._parent())
             return
         if mode == "direct" and self.client and self.client._account and not self.client._account.is_premium:
             messagebox.showerror("SkyrimDownloaded", "Downloading here needs a Premium account. "
-                                 "Choose 'Mod manager downloads' instead.", parent=self.root)
+                                 "Choose 'Mod manager downloads' instead.", parent=self._parent())
             return
         if mode == "handoff" and not messagebox.askokcancel(
                 "Ready?", f"Open {target.name} on your Skyrim setup now, then press OK.\n\n"
                 f"Each file is sent to {target.name}, which downloads it with your Nexus login"
                 + (" and installs it (you'll see installer options there)."
                    if target.name == "Vortex" and self.install_var.get() else "."),
-                parent=self.root):
+                parent=self._parent()):
             return
         self._save_settings()
         if self._list_is_saved():
@@ -47,7 +47,7 @@ class DownloadMixin:
                 pass
         self.jobs = jobs_for(self.plans)
         if not self.jobs:
-            messagebox.showinfo("SkyrimDownloaded", "No files ticked.", parent=self.root)
+            messagebox.showinfo("SkyrimDownloaded", "No files ticked.", parent=self._parent())
             return
         self._map_job_rows()
         for row, plan in self._row_plan.items():  # show each file's progress
@@ -107,7 +107,7 @@ class DownloadMixin:
             msg += "\n\nThese didn't work:\n" + "\n".join(f"• {j.label}: {j.note}" for j in failed[:15])
         if self.mode_var.get() == "direct" and self.manager_var.get() == "mo2" and counts.get(DONE):
             msg += "\n\nIn MO2, open the Downloads tab and install the new downloads."
-        messagebox.showinfo("SkyrimDownloaded", msg, parent=self.root)
+        messagebox.showinfo("SkyrimDownloaded", msg, parent=self._parent())
 
     def stop(self) -> None:
         self.cancel.set()

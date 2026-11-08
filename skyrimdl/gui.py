@@ -1095,11 +1095,19 @@ class App:
             webbrowser.open(plan.entry.page_url + "?tab=files")
 
     def walk_choices(self, plans: list | None = None, review: bool = False) -> None:
-        """Step through every mod with options, one at a time, like a collection install.
-        Afterwards the mods are checked for links with each other (compatibility)."""
+        """Step through the mods with options, one at a time, like a collection install.
+
+        Opens at the first mod still waiting for a choice (where you left off), with the
+        ones before it reachable with Back; mods skipped for now come last. Once every
+        mod has been chosen, the mods are checked for links with each other."""
+        start = 0
         if plans is None:
-            waiting = [p for p in self.plans if p.needs_choice and not p.error]
-            plans = waiting or [p for p in self.plans if not p.error and len(visible_options(p.options)) > 1]
+            with_options = [p for p in self.plans if not p.error and not p.skipped and
+                            (p.needs_choice or len(visible_options(p.options)) > 1)]
+            later = [p for p in with_options if p.reason.startswith("skipped for now")]
+            plans = [p for p in with_options if p not in later] + later
+            waiting = [i for i, p in enumerate(plans) if p.needs_choice]
+            start = waiting[0] if waiting else 0
         if not plans:
             if review:
                 return
@@ -1109,10 +1117,16 @@ class App:
         dlg = ChoiceDialog(self.root, plans, self.old_var.get(), self.other_var.get(),
                            suggestions=report.suggestions() if report else {},
                            warnings=report.warnings() if report else {},
-                           title="Review linked mods" if review else "Choose options")
+                           title="Review linked mods" if review else "Choose options", start=start)
         dlg.wait_window()
         self._fill_tree()
-        if not review:
+        if review:
+            return
+        left = [p for p in self.plans if p.needs_choice and not p.error]
+        if left:
+            self.status_var.set(f"Paused with {len(left)} mod(s) still to choose - "
+                                "Choose options\u2026 carries on where you left off.")
+        else:
             self.check_compatibility(auto=True)
 
     # -- compatibility ----------------------------------------------------------
@@ -1329,15 +1343,17 @@ class ChoiceDialog(tk.Toplevel):
 
     def __init__(self, master, plans: list[ModPlan], include_old: bool, include_other: bool = False, *,
                  suggestions: dict | None = None, warnings: dict | None = None,
-                 title: str = "Choose options"):
+                 title: str = "Choose options", start: int = 0):
         super().__init__(master)
         self.plans = list(plans)
         self.include_old = include_old
         self.include_other = include_other
         self.suggestions = suggestions or {}
         self.warnings = warnings or {}
-        self.later: list[ModPlan] = []      # skipped for now
-        self.index = 0
+        # skipped for now (including skips from an earlier visit)
+        self.later: list[ModPlan] = [p for p in self.plans if p.reason.startswith("skipped for now")]
+        self.index = min(max(0, start), len(self.plans) - 1)
+        self.resumed = start > 0
         self.vars: list[tuple[tk.BooleanVar, int]] = []
         self.title(title)
         self.geometry("800x600")
@@ -1392,6 +1408,9 @@ class ChoiceDialog(tk.Toplevel):
         author = f" by {plan.mod.author}" if plan.mod and plan.mod.author else ""
         self.head.set(plan.title + author)
         sub = plan.reason
+        if self.resumed:
+            sub = "Picking up where you left off. " + sub
+            self.resumed = False
         if plan in self.later:
             sub = "You skipped this one earlier - choose now, or Done to leave it for later."
         self.sub.set(sub + (f"   \u2022   your note: {plan.entry.note}" if plan.entry.note else ""))
@@ -1447,7 +1466,9 @@ class ChoiceDialog(tk.Toplevel):
             self.later.remove(plan)
 
     def go(self, step: int) -> None:
-        self.commit()
+        # Next chooses what's ticked; Back only keeps changes you made.
+        if step > 0 or set(self._ticked()) != set(self.plan.selected):
+            self.commit()
         new = self.index + step
         if new >= len(self.plans):
             self.finish()
@@ -1480,9 +1501,10 @@ class ChoiceDialog(tk.Toplevel):
         webbrowser.open(self.plan.entry.page_url + "?tab=files")
 
     def finish(self) -> None:
+        """Done = stop here for now. The mod on screen only counts as chosen if you
+        changed its ticks; otherwise it waits for next time, where this carries on."""
         plan = self.plan
-        # A mod skipped for now stays to-do unless its ticks were changed.
-        if not (plan in self.later and set(self._ticked()) == set(plan.selected)):
+        if set(self._ticked()) != set(plan.selected):
             self.commit()
         self.autoscroll.stop()
         self.grab_release()

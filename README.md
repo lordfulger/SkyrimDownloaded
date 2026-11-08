@@ -72,12 +72,14 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
 3. **Your Skyrim:** pick your game version, or press **Detect** to read it from your `SkyrimSE.exe` (see below).
 4. **Mod list:** open a `.txt` file, or type or paste links into the box. Then press **Look up mods**.
 5. **Choose options:** for every mod with more than one file, a window steps you through them one at a time. Tick the files you want.
-   - **Skip for now** puts a mod off; it comes back after all the others. If you press **Done** while some are still skipped, they stay highlighted in the list.
+   - **Next** chooses the ticked files and moves on. **Back** goes to the previous mod without choosing anything for the one you're on, unless you changed its ticks.
+   - **Done** pauses. The mod on screen isn't chosen for you unless you changed its ticks. Press **Choose options…** later and it carries on at the first mod still waiting, with **Back** for the ones before it. Your place is kept even if you close the app.
+   - **Skip for now** puts a mod off; it comes back after all the others. Mods still skipped or waiting stay highlighted in the list.
    - **Leave this mod out** drops it from this download.
    - The wheel, middle-click scrolling and Page Up/Down all scroll the list of files.
    - In the main list, tick or untick a file by clicking its box or double-clicking it. **Choose options…** opens the window again.
    - **Click a mod** to see its Nexus page in the panel on the right: author, version, last update, endorsements, downloads, summary and full description. The panel also shows its requirements (in your list or not) and its links with your other mods. Click a file to see that file's details.
-6. **Compatibility check:** when you finish choosing options, the tool checks how the mods in your list relate to each other (see below). It then offers to **review** the mods involved, with suggested patches already ticked. **Check compatibility** runs the check again any time.
+6. **Compatibility check:** once every mod's options are chosen, the tool checks how the mods in your list relate to each other (see below). It then offers to **review** the mods involved, with suggested patches already ticked. **Check compatibility** runs the check again any time.
 7. **Start downloads.** For "Mod manager downloads", open MO2 or Vortex on your Skyrim setup first. If you stop part way, start again later and it carries on where it left off.
 
 ## Picking files for your Skyrim version

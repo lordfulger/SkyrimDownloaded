@@ -42,8 +42,19 @@ class AppUpdateTests(unittest.TestCase):
         self.assertIsNone(appupdate.running_exe())                # tests run from source
         self.assertIn('copy /Y "%NEW%" "%OLD%"', appupdate.SWAP_SCRIPT)
 
-    def test_offline_is_quiet(self):
-        self.assertIsNone(appupdate.check("http://127.0.0.1:1/nope", timeout=1))
+    def test_offline_says_why(self):
+        with self.assertRaises(appupdate.CheckFailed):
+            appupdate.check("http://127.0.0.1:1/nope", timeout=1, fallback=False)
+
+    def test_fallback_reads_the_releases_page(self):
+        from unittest import mock
+        with FakeNexus() as fake:
+            host = fake.base.replace("/v1", "")
+            with mock.patch.object(appupdate, "RELEASES_PAGE", host + "/redirect/latest"):
+                fake.state["redirect_to"] = "/lordfulger/SkyrimDownloaded/releases/tag/v2.1.0"
+                found = appupdate.check("http://127.0.0.1:1/nope", current="1.9.0", timeout=2)
+                self.assertEqual(found.version, "2.1.0")
+                self.assertTrue(found.exe_url.endswith("/download/v2.1.0/SkyrimDownloaded.exe"))
 
 
 @unittest.skipUnless(__import__("sys").platform == "win32", "Windows only")

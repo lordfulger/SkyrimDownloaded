@@ -31,15 +31,47 @@ def parse(version: str) -> tuple[int, ...]:
     return tuple(int(x) for x in re.findall(r"\d+", version or "")[:3]) or (0,)
 
 
-def check(url: str = LATEST_URL, current: str = __version__, timeout: float = 10.0) -> NewVersion | None:
-    """The newer release, or None if this is the latest (or GitHub can't be reached)."""
+class CheckFailed(RuntimeError):
+    """GitHub couldn't be asked (offline, blocked, rate-limited...)."""
+
+
+def _from_releases_page(current: str, timeout: float) -> NewVersion | None:
+    """Fallback without GitHub's API (which allows 60 checks an hour per connection):
+    github.com/<repo>/releases/latest redirects to the newest release's page."""
+    req = urllib.request.Request(RELEASES_PAGE, method="HEAD",
+                                 headers={"User-Agent": f"SkyrimDownloaded/{current}"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        final = resp.geturl()
+    m = re.search(r"/releases/tag/(v?[\d.]+)", final)
+    if not m:
+        raise CheckFailed(f"unexpected releases page {final}")
+    tag = m.group(1)
+    if parse(tag) <= parse(current):
+        return None
+    base = RELEASES_PAGE.rsplit("/latest", 1)[0]
+    return NewVersion(tag.lstrip("v"), f"{base}/tag/{tag}", f"{base}/download/{tag}/SkyrimDownloaded.exe")
+
+
+def check(url: str = LATEST_URL, current: str = __version__, timeout: float = 10.0,
+          fallback: bool = True) -> NewVersion | None:
+    """The newer release, or None if this is the latest. Raises CheckFailed (with the
+    reason) if GitHub couldn't be asked at all."""
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
                                                "User-Agent": f"SkyrimDownloaded/{current}"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-    except Exception:
-        return None
+    except Exception as err:
+        if getattr(err, "code", None) == 404:
+            raise CheckFailed("GitHub says the SkyrimDownloaded project isn't there - it's probably "
+                              "set to private, so the app can't see its releases") from None
+        api_error = getattr(err, "reason", None) or err
+        if not fallback:
+            raise CheckFailed(f"GitHub didn't answer: {api_error}") from None
+        try:
+            return _from_releases_page(current, timeout)
+        except Exception as err2:
+            raise CheckFailed(f"GitHub didn't answer ({api_error}; {getattr(err2, 'reason', None) or err2})") from None
     tag = str(data.get("tag_name") or "")
     if not tag or data.get("draft") or data.get("prerelease") or parse(tag) <= parse(current):
         return None

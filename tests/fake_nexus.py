@@ -111,6 +111,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_HEAD(self):
+        self.do_GET()
+
     def do_GET(self):
         state = self.server.state
         path = urlsplit(self.path).path
@@ -118,6 +121,13 @@ class Handler(BaseHTTPRequestHandler):
         if state.get("delay"):
             import time
             time.sleep(state["delay"])
+        if path.startswith("/redirect/"):  # github.com/.../releases/latest -> the newest release page
+            self.send_response(302)
+            self.send_header("Location", state.get("redirect_to", "/"))
+            self.end_headers()
+            return
+        if "/releases/tag/" in path:
+            return self._json(200, {"page": path})
         if path.endswith("/releases/latest"):  # GitHub, for the update check
             tag = state.get("latest_tag", "v9.9.9")
             return self._json(200, {"tag_name": tag, "html_url": f"https://example.com/{tag}",

@@ -372,7 +372,16 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         s.last_update_check = time.time()
 
         def work():
-            found = appupdate.check()
+            try:
+                found = appupdate.check()
+            except appupdate.CheckFailed as err:
+                log.warning("Update check failed: %s", err)
+                if force:
+                    self.events.put(("error", f"Couldn't check for a new version: {err}\n\nCheck your "
+                                              "internet connection, or whether a firewall or antivirus blocks "
+                                              "SkyrimDownloaded from reaching github.com. The latest version is "
+                                              "always on " + appupdate.RELEASES_PAGE))
+                return
             self.events.put(("app-update", (found, force)))
         threading.Thread(target=work, daemon=True).start()
 

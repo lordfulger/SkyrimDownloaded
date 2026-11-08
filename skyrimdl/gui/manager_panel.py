@@ -24,6 +24,15 @@ class ManagerMixin:
                        command=lambda k=key, w=what: self._browse(k, w)).grid(row=row, column=2)
         self.paths.columnconfigure(1, weight=1)
         self.install_check.configure(state="normal" if kind == "vortex" else "disabled")
+        if kind == "mo2":
+            try:
+                has = mo2addon.addon_installed(self._target().exe())
+            except ManagerError:
+                has = False
+            self.addon_btn.configure(text="MO2 installer added \u2713" if has else "Add installer to MO2")
+            self.addon_btn.pack(side="left", padx=6, after=self.find_btn)
+        else:
+            self.addon_btn.pack_forget()
         self._update_where()
 
     def _target_game(self) -> "gameversion.GameTarget":

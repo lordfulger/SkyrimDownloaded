@@ -113,8 +113,11 @@ class DownloadMixin:
         msg = "Finished: " + text
         if failed:
             msg += "\n\nThese didn't work:\n" + "\n".join(f"• {j.label}: {j.note}" for j in failed[:15])
-        if self.mode_var.get() == "direct" and self.manager_var.get() == "mo2" and counts.get(DONE):
-            msg += "\n\nIn MO2, open the Downloads tab and install the new downloads."
+        if self.manager_var.get() == "mo2" and (counts.get(DONE) or counts.get(SENT)):
+            msg += ("\n\nTo install them all in your list's order: in MO2, Tools (puzzle piece) > "
+                    "\"SkyrimDownloaded: install downloaded mods\"" + ("" if self.addon_btn.cget("text").endswith("\u2713")
+                    else " - add it first with \"Add installer to MO2\" in step 2") + ". Or install them one by "
+                    "one from MO2's Downloads tab.")
         messagebox.showinfo("SkyrimDownloaded", msg, parent=self._parent())
 
     def stop(self) -> None:

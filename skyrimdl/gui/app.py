@@ -140,6 +140,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.find_btn = ttk.Button(found, text="\U0001F50D Find automatically",
                                    command=lambda: self.find_folders(deep=True))
         self.find_btn.pack(side="left")
+        self.addon_btn = ttk.Button(found, text="Add installer to MO2", command=self.add_mo2_addon)
         self.where_var = tk.StringVar()
         ttk.Label(found, textvariable=self.where_var, style="Muted.TLabel").pack(side="left", fill="x", padx=8)
         self.found: finder.Findings | None = None
@@ -177,11 +178,17 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         lst = ttk.LabelFrame(panes, text="3. Mod list (Nexus links, nxm:// links or mod numbers, one per line)")
         bar = ttk.Frame(lst)
         bar.pack(fill="x", padx=6, pady=4)
-        ttk.Button(bar, text="Open list\u2026", command=self.open_list).pack(side="left")
-        ttk.Button(bar, text="Save list\u2026", command=self.save_list).pack(side="left", padx=4)
-        ttk.Button(bar, text="Save progress", command=self.save_progress).pack(side="left")
-        ttk.Button(bar, text="Start over", command=self.start_over).pack(side="left", padx=4)
-        ttk.Button(bar, text="Share\u2026", command=self.share_list).pack(side="left")
+        list_btn = ttk.Menubutton(bar, text="List \u25be")
+        list_menu = tk.Menu(list_btn, tearoff=False)
+        list_menu.add_command(label="Open list\u2026", command=self.open_list)
+        list_menu.add_command(label="Save list\u2026", command=self.save_list)
+        list_menu.add_command(label="Start from a Nexus Collection\u2026", command=self.import_collection)
+        list_menu.add_command(label="Share (with your choices)\u2026", command=self.share_list)
+        list_menu.add_separator()
+        list_menu.add_command(label="Start over", command=self.start_over)
+        list_btn["menu"] = list_menu
+        list_btn.pack(side="left")
+        ttk.Button(bar, text="Save progress", command=self.save_progress).pack(side="left", padx=4)
         self.list_label = tk.StringVar(value="(type or paste links below)")
         list_label = ttk.Label(bar, textvariable=self.list_label, style="Muted.TLabel")
         self.lookup_btn = ttk.Button(bar, text="Look up mods \u25B6", command=self.lookup)
@@ -369,6 +376,23 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                                    f"{__version__}). Open the download page?", parent=self._parent()):
                 webbrowser.open(found.page)
 
+    def add_mo2_addon(self) -> None:
+        """Put the SkyrimDownloaded add-on in MO2's plugins folder."""
+        try:
+            exe = self._target().exe()
+            where = mo2addon.install_addon(exe)
+        except (ManagerError, OSError) as err:
+            messagebox.showerror("MO2 add-on", f"Couldn't add it: {err}\n\nPoint the tool at ModOrganizer.exe "
+                                 "in step 2 first.", parent=self._parent())
+            return
+        log.info("Installed the MO2 add-on to %s", where)
+        self._manager_changed()
+        messagebox.showinfo(
+            "MO2 add-on", f"Added to {where}.\n\nRestart Mod Organizer 2. After your downloads finish, open "
+            "MO2's Tools menu (the puzzle-piece button) > \"SkyrimDownloaded: install downloaded mods\". It "
+            "installs everything in your list's order, then orders and switches the mods on.",
+            parent=self._parent())
+
     def copy_debug_info(self) -> None:
         """Version, system, setup and the end of the log, ready to paste into a problem report."""
         target = self._target_game()
@@ -514,7 +538,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                 "clipboard-login": self._clipboard_login_done, "updates": self._updates_done,
                 "compat": self._compat_done, "games": self._games_found, "found": self._apply_found,
                 "requirements": self._requirements_done, "finished": self._finished,
-                "app-update": self._app_update_found,
+                "app-update": self._app_update_found, "collection": self._collection_loaded,
             }.get(kind)
             if handler is None:
                 log.warning("Unknown event %s", kind)

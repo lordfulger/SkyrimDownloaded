@@ -157,9 +157,17 @@ class MO2Target(Target):
         # MO2 passes the link to the copy that's already running.
         return [str(self.exe()), url]
 
+    def prepare(self, jobs) -> None:
+        """Leave an install plan for the SkyrimDownloaded add-on in MO2 (list order)."""
+        from ..mo2addon import write_plan
+        try:
+            write_plan(self.downloads_dir(), [j for j in jobs])
+        except (OSError, ManagerError):
+            pass
+
     def after_download(self, path: Path, mod: ModInfo, option: FileOption, install: bool) -> str:
         write_meta(path, mod, option, self.game)
-        return "in MO2's Downloads tab - install it there"
+        return "in MO2's Downloads tab"
 
 
 def _q(value: object) -> str:

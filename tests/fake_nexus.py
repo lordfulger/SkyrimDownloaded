@@ -210,6 +210,26 @@ REQUIREMENTS = {
 }
 
 
+def _cfile(mod_id, file_id, mod_name, file_name, optional=False):
+    return {"fileId": file_id, "optional": optional,
+            "file": {"fileId": file_id, "modId": mod_id, "name": file_name, "version": "1",
+                     "mod": {"name": mod_name}, "game": {"domainName": "skyrimspecialedition"}}}
+
+
+COLLECTION = {
+    "revisionNumber": 7,
+    "collection": {"name": "Pretty Skyrim | Lite", "slug": "abc123", "summary": "x",
+                   "game": {"domainName": "skyrimspecialedition"}},
+    "modFiles": [
+        _cfile(12604, 101, "SkyUI", "SkyUI_5_2_SE"),
+        _cfile(1000, 202, "Pretty Textures", "Pretty Textures 2K"),
+        _cfile(1000, 203, "Pretty Textures", "USSEP Patch, for real"),
+        _cfile(266, 501, "Unofficial Skyrim Special Edition Patch", "USSEP", optional=True),
+    ],
+    "externalResources": [{"name": "SKSE64 (#1)", "resourceUrl": "https://skse.silverlock.org", "optional": False}],
+}
+
+
 DLC_REQUIREMENTS = {
     1000: [{"gameExpansion": {"id": "1", "name": "Fishing"}, "notes": "for the fishing rods"}],
 }
@@ -221,6 +241,11 @@ def _post(self):
     self.server.state["requests"].append("POST " + self.path)
     if self.server.state.get("graphql_down"):
         return self._json(500, {"errors": [{"message": "down"}]})
+    if "collectionRevision" in body.get("query", ""):
+        slug = body.get("variables", {}).get("slug")
+        if slug != "abc123":
+            return self._json(200, {"errors": [{"message": "Collection not found"}], "data": None})
+        return self._json(200, {"data": {"collectionRevision": COLLECTION}})
     mod_id = body.get("variables", {}).get("modId")
     nodes = REQUIREMENTS.get(mod_id, [])
     result = {"nexusRequirements": {"nodes": nodes}}

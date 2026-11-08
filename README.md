@@ -119,9 +119,37 @@ Many mods offer separate files for different versions of the game. SSE Engine Fi
 - **Changing the version later:** files are picked again right away. Mods where you'd already picked a file for the old version are highlighted for you to check.
 - **Command line:** `--game-version 1.6.1170` (or `any`) and `--store gog`. `detect` shows the Skyrim installs it finds.
 
+## Installing everything in MO2 (the MO2 add-on)
+
+Vortex installs mods as they download. MO2 can't be told from outside to install a download, so SkyrimDownloaded comes with a small **MO2 add-on** that does it from inside MO2:
+
+1. In step 2, press **Add installer to MO2** (needs `ModOrganizer.exe` set; **Find automatically** usually fills it in). Restart MO2.
+2. Download your list as usual. SkyrimDownloaded leaves an *install plan* (your list's order) in the instance's downloads folder.
+3. In MO2, open **Tools** (the puzzle-piece button) → **SkyrimDownloaded: install downloaded mods**.
+
+The add-on then:
+- **installs every downloaded mod in your list's order.** Each mod's installer windows (FOMOD) still appear, so you choose those options as usual.
+- **skips mods that are already installed.**
+- **installs a mod with several files as separate mods**, e.g. "Pretty Textures – USSEP Patch", so nothing asks to merge or replace.
+- **moves the mods to the bottom of the left pane in your list's order and switches them on.**
+
+Run **Sort with LOOT** afterwards to sort the plugins. Command line: `python -m skyrimdl mo2-addon`.
+
+## Starting from a Nexus Collection
+
+**List ▾ → Start from a Nexus Collection…** asks for a collection's link (e.g. `https://www.nexusmods.com/games/skyrimspecialedition/collections/abc123`, optionally ending in `/revisions/12`) and turns it into a normal list:
+
+- **Every file is pinned**, so you get exactly the files the collection uses.
+- **Mods the collection marks optional** ask before downloading.
+- **Things the collection needs from outside Nexus** are listed as notes.
+
+Then change it however you like: add mods, remove some, pick different files, before pressing **Look up mods**. The installer (FOMOD) choices stored in a collection aren't used; your mod manager asks for those when installing.
+
+Command line: `python -m skyrimdl collection <link> -o my-list.txt`
+
 ## Sharing your list
 
-**Share…** saves your list with every choice locked in: the exact files you picked, mods you left out, and the Skyrim version it was made for. Send that file to a friend. When they open it and press **Look up mods**, they get exactly the same files with no questions asked, which makes it the closest thing to your own collection.
+**List ▾ → Share…** saves your list with every choice locked in: the exact files you picked, mods you left out, and the Skyrim version it was made for. Send that file to a friend. When they open it and press **Look up mods**, they get exactly the same files with no questions asked, which makes it the closest thing to your own collection.
 
 - **It's an ordinary mod list.** Each line pins the files with `| file=…`, so you can read and edit it too.
 - **Different Skyrim versions:** if the person has a different version than yours, they're told. Any pinned file that doesn't fit their version is flagged for them to choose again.
@@ -174,7 +202,7 @@ Your work is saved as you go and when you close the app. Next time it opens, eve
 - the compatibility results
 - the view settings and the window size
 
-**Save progress** saves straight away if you want to be sure. **Start over** clears everything for a new list; a list you saved to a file stays on disk.
+**Save progress** saves straight away if you want to be sure. **List ▾ → Start over** clears everything for a new list; a list you saved to a file stays on disk.
 
 The saved work is in `%APPDATA%\SkyrimDownloaded\session.json`. It holds what Nexus said when you last looked the mods up, so press **Look up mods** to refresh it if a while has passed. Your choices are kept.
 
@@ -334,6 +362,8 @@ skyrimdl/
   logs.py        the log file and "Copy debug info"
   appupdate.py   is there a newer release on GitHub?
   pictures.py    mod pictures for the info panel (Pillow; optional from source)
+  collections.py turn a Nexus Collection into a list
+  mo2addon.py    the MO2 add-on (installs downloads in list order) and its install plan
   gui/           the window, split by area (app.py ties it together)
   cli.py, gui.py command line and Tk window
 ```

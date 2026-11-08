@@ -41,6 +41,51 @@ class ListMixin:
             return False
         return on_disk.rstrip() == self.list_text.get("1.0", "end-1c").rstrip()
 
+    def import_collection(self) -> None:
+        """Start (or add to) the list from a Nexus Collection's link."""
+        if self.client is None:
+            messagebox.showinfo("Collection", "Log in first.", parent=self._parent())
+            return
+        from tkinter import simpledialog
+        link = simpledialog.askstring(
+            "Start from a Nexus Collection",
+            "Paste the collection's link (from its page on Nexus Mods):", parent=self._parent())
+        if not link:
+            return
+        parsed = collections.parse_link(link)
+        if not parsed:
+            messagebox.showerror("Collection", "That doesn't look like a link to a Nexus Collection "
+                                 "(\u2026nexusmods.com/games/skyrimspecialedition/collections/abc123).",
+                                 parent=self._parent())
+            return
+        game, slug, revision = parsed
+        client = self.client
+        self.status_var.set("Getting the collection from Nexus\u2026")
+
+        def work():
+            data = client.collection(slug, game, revision)
+            self.events.put(("collection", (data, game)))
+        self._background(work)
+
+    def _collection_loaded(self, data, game) -> None:
+        text, count = collections.to_list(data, game)
+        name = (data.get("collection") or {}).get("name") or "the collection"
+        current = self.list_text.get("1.0", "end-1c").strip()
+        if current:
+            answer = messagebox.askyesnocancel(
+                "Collection", f"{name} has {count} mods.\n\nYes: add them to your current list\n"
+                "No: replace your list with them", parent=self._parent())
+            if answer is None:
+                return
+            if answer:
+                text = current + "\n\n" + text
+        self.list_text.delete("1.0", "end")
+        self.list_text.insert("1.0", text)
+        self.list_path = None
+        self.list_label.set(f"(from the collection {name})")
+        self.status_var.set(f"Added {count} mods from {name}. Change the list if you like, then Look up mods.")
+        log.info("Imported collection %s (%d mods)", name, count)
+
     def lookup(self) -> None:
         if self.client is None:
             messagebox.showinfo("SkyrimDownloaded", "Log in with your API key first.", parent=self._parent())

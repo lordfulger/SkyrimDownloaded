@@ -33,6 +33,16 @@ query modRequirements($modId: Int!, $gameDomainName: String!) {
   }
 }
 """
+COLLECTION_QUERY = """
+query collectionRevision($slug: String, $domainName: String, $revision: Int) {
+  collectionRevision(slug: $slug, domainName: $domainName, revision: $revision, viewAdultContent: true) {
+    revisionNumber
+    collection { name slug summary game { domainName } }
+    modFiles { fileId optional file { fileId modId name version mod { name } game { domainName } } }
+    externalResources { name resourceUrl optional }
+  }
+}
+"""
 # The same without DLC, in case Nexus ever stops accepting that part.
 REQUIREMENTS_QUERY_NO_DLC = REQUIREMENTS_QUERY.replace(
     "    dlcRequirements { gameExpansion { id name } notes }\n", "")
@@ -332,7 +342,7 @@ class NexusClient:
                 return out
         data = None
         for query in (REQUIREMENTS_QUERY, REQUIREMENTS_QUERY_NO_DLC):
-            data = self._graphql(query, {"modId": int(mod_id), "gameDomainName": game})
+            data = self._graphql(query, {"modId": int(mod_id), "gameDomainName": game}, "modRequirements")
             if data is not None:
                 break
         if data is None:
@@ -365,18 +375,35 @@ class NexusClient:
             self.disk_cache.put(cache_key, [asdict(r) for r in out])
         return out
 
-    def _graphql(self, query: str, variables: dict):
-        """The ``modRequirements`` part of a v2 answer, or None if the query failed."""
+    def collection(self, slug: str, game: str | None = None, revision: int | None = None) -> dict:
+        """A Nexus Collection's mod files (latest published revision unless one is given)."""
+        data = self._graphql(COLLECTION_QUERY, {"slug": slug, "domainName": game, "revision": revision},
+                             "collectionRevision", raise_errors=True)
+        if not data:
+            raise NexusError("Nexus didn't return that collection.")
+        return data
+
+    def _graphql(self, query: str, variables: dict, field: str, raise_errors: bool = False):
+        """One field of a v2 answer, or None if the query failed."""
         body = json.dumps({"query": query, "variables": variables}).encode()
         headers = dict(self._headers(), **{"Content-Type": "application/json"})
         req = urllib.request.Request(self.graphql_url, data=body, headers=headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-            result = (data.get("data") or {}).get("modRequirements")
-            return result if isinstance(result, dict) else None
-        except Exception:
+        except urllib.error.HTTPError as err:
+            if raise_errors:
+                raise NexusError(f"Nexus API {err.code}: {_error_message(err)}", err.code) from None
             return None
+        except Exception as err:
+            if raise_errors:
+                raise NexusError(f"Can't reach Nexus Mods: {err}") from None
+            return None
+        result = (data.get("data") or {}).get(field)
+        if not isinstance(result, dict) and raise_errors and data.get("errors"):
+            message = "; ".join(str(e.get("message")) for e in data["errors"][:3])
+            raise NexusError(f"Nexus: {message}", 404 if "not found" in message.lower() else None)
+        return result if isinstance(result, dict) else None
 
 
 def _error_message(err: urllib.error.HTTPError) -> str:

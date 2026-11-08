@@ -227,6 +227,10 @@ class Runner:
         return None, None
 
     def run(self, jobs: list[Job]) -> list[Job]:
+        try:
+            self.target.prepare(jobs)
+        except Exception:
+            logging.getLogger("skyrimdl").exception("preparing the mod manager")
         todo = []
         for job in jobs:
             existing = None if self.redownload else self.target.existing(job.option)

@@ -14,7 +14,7 @@ from .config import Settings, choices_path, load_choices, save_choices
 from .engine import (DONE, missing_requirements, FAILED, SENT, SKIPPED, STOPPED, WORKING, Job, ModPlan, Runner,
                      jobs_for, resolve, summary)
 from .links import parse_list
-from . import compat, finder, loot, sharing, updates
+from . import collections, compat, finder, loot, nexuscache, sharing, updates
 from .managers import ManagerError, make_target
 from .nexus import AuthError, NexusClient, NexusError
 from .gameversion import PRESETS, STORES, find_games, mo2_game_path, version_text
@@ -285,6 +285,24 @@ def _compat_report(client, plans, args) -> None:
                     f.plan.selected.append(f.file_id)
 
 
+def cmd_collection(args, settings: Settings) -> int:
+    parsed = collections.parse_link(args.link)
+    if not parsed:
+        _out("That doesn't look like a link to a Nexus Collection.")
+        return 1
+    game, slug, revision = parsed
+    try:
+        client = NexusClient(args.key or settings.get_api_key())
+        data = client.collection(slug, game, revision)
+    except NexusError as err:
+        _out(f"Couldn't get the collection: {err}")
+        return 1
+    text, count = collections.to_list(data, game)
+    Path(args.output).write_text(text, encoding="utf-8")
+    _out(f"Wrote {count} mods to {args.output}. Run it with:  python -m skyrimdl run {args.output}")
+    return 0
+
+
 def cmd_updates(args, settings: Settings) -> int:
     list_path = Path(args.list)
     try:
@@ -294,7 +312,7 @@ def cmd_updates(args, settings: Settings) -> int:
         return 1
     entries, _ = parse_list(text, settings.game)
     try:
-        client = NexusClient(args.key or settings.get_api_key())
+        client = NexusClient(args.key or settings.get_api_key(), disk_cache=nexuscache.shared())
         client.validate()
     except NexusError as err:
         _out(f"Nexus login failed: {err}")
@@ -316,6 +334,19 @@ def cmd_updates(args, settings: Settings) -> int:
         _out(f"Switched {n} file(s) to the newer version in {store.name}. Run the list again to download them.")
     else:
         _out("Add --apply to switch to the newer files.")
+    return 0
+
+
+def cmd_mo2_addon(args, settings: Settings) -> int:
+    from . import mo2addon
+    settings.manager = "mo2"
+    _auto_fill(settings)
+    try:
+        where = mo2addon.install_addon(make_target("mo2", settings.game, **settings.target_paths()).exe())
+    except (ManagerError, OSError) as err:
+        _out(f"Couldn't add it: {err}")
+        return 1
+    _out(f"Added to {where}. Restart MO2, then Tools > \"SkyrimDownloaded: install downloaded mods\".")
     return 0
 
 
@@ -362,7 +393,7 @@ def cmd_run(args, settings: Settings) -> int:
 
     key = args.key or settings.get_api_key()
     try:
-        client = NexusClient(key)
+        client = NexusClient(key, disk_cache=nexuscache.shared(), refresh=args.refresh)
         account = client.validate()
     except NexusError as err:
         _out(f"Nexus login failed: {err}\nRun:  python -m skyrimdl login")
@@ -444,7 +475,8 @@ def cmd_run(args, settings: Settings) -> int:
     counts = summary(jobs)
     _out()
     _out("Done: " + ", ".join(f"{n} {state}" for state, n in counts.items()))
-    _out(f"Nexus API: {client.rate.describe()}")
+    _out(f"Nexus API: {client.rate.describe()} ({client.requests_made} used this run, "
+         f"{client.requests_saved} saved by reusing earlier lookups)")
     settings.last_list = str(list_path.resolve())
     settings.save()
     return 1 if counts.get(FAILED) else 0
@@ -463,12 +495,18 @@ def build_parser() -> argparse.ArgumentParser:
     login = sub.add_parser("login", help="save your Nexus API key")
     login.add_argument("--key", help="the key (otherwise you're asked for it)")
 
+    col = sub.add_parser("collection", help="make a mod list from a Nexus Collection")
+    col.add_argument("link", help="the collection's link (or its short name, e.g. abc123)")
+    col.add_argument("-o", "--output", required=True, help="the list file to write")
+    col.add_argument("--key", help="Nexus API key for this run (otherwise the saved one)")
+
     upd = sub.add_parser("updates", help="check the mods in a list for newer files")
     upd.add_argument("list", help="the mod list (your saved choices are used)")
     upd.add_argument("--apply", action="store_true", help="switch your saved choices to the newer files")
     upd.add_argument("--key", help="Nexus API key for this run (otherwise the saved one)")
 
     sub.add_parser("loot", help="open LOOT to sort the load order (through MO2 for MO2 setups)")
+    sub.add_parser("mo2-addon", help="add the installer to MO2 (installs downloads in list order)")
 
     detect = sub.add_parser("detect", help="find MO2 and Vortex on this PC")
     detect.add_argument("--deep", action="store_true",
@@ -495,6 +533,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("-y", "--yes", action="store_true",
                      help="don't ask: take the primary file where a mod has options")
     run.add_argument("--fresh", action="store_true", help="ignore the choices saved last time")
+    run.add_argument("--refresh", action="store_true",
+                     help="ask Nexus again instead of reusing mods looked up in the last 7 days")
     run.add_argument("--include-old", action="store_true", help="also offer old versions")
     run.add_argument("--game-version", metavar="VERSION",
                      help="your Skyrim version, e.g. 1.6.1170, 1.6.640, 1.5.97 or 1.4.15 (VR); files "
@@ -525,6 +565,7 @@ def main(argv: list[str] | None = None) -> int:
         return run_gui(settings)
     try:
         return {"login": cmd_login, "detect": cmd_detect, "run": cmd_run, "updates": cmd_updates,
+                "collection": cmd_collection, "mo2-addon": cmd_mo2_addon,
                 "loot": cmd_loot}[args.command](args, settings)
     except AuthError as err:
         _out(str(err))

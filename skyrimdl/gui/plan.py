@@ -133,10 +133,15 @@ class PlanMixin:
         if self.busy or row not in self._row_option:
             return
         plan, fid = self._row_option[row]
+        suggested = self.compat.suggestions().get(id(plan), {}) if self.compat else {}
+        declined = self.__dict__.setdefault("patch_declined", set())
         if fid in plan.selected:
             plan.selected.remove(fid)
+            if fid in suggested:
+                declined.add(self._patch_key(plan, fid))  # don't tick it again by itself
         else:
             plan.selected.append(fid)
+            declined.discard(self._patch_key(plan, fid))
         on = fid in plan.selected
         self.tree.set(row, "get", ON if on else OFF)
         self.tree.item(row, tags=() if on else ("off",))
@@ -349,6 +354,11 @@ class PlanMixin:
                            requirement_rows=self.requirement_rows,
                            add_requirement=self.add_requirement_to_list)
         dlg.wait_window()
+        if report:  # suggested patches unticked in the window stay unticked
+            declined = self.__dict__.setdefault("patch_declined", set())
+            for plan in plans:
+                for fid in report.suggestions().get(id(plan), {}):
+                    (declined.discard if fid in plan.selected else declined.add)(self._patch_key(plan, fid))
         self._fill_tree()
         if self.lookup_if_added():  # requirements were added from the window: look them up
             return

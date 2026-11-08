@@ -426,6 +426,16 @@ def cmd_run(args, settings: Settings) -> int:
     for plan in plans:
         if plan.error:
             _out(f"  !! {plan.title} ({plan.entry.page_url}): {plan.error}")
+    if not args.no_auto_patches:
+        ticked = 0
+        for f in compat.check(plans, client).by_kind(compat.PATCH):
+            opt = f.plan.option(f.file_id)
+            if opt and not opt.fit.hidden and f.file_id not in f.plan.selected and not f.plan.error:
+                f.plan.selected.append(f.file_id)
+                ticked += 1
+                _out(f"  + {f.plan.title}: {opt.name} (for {f.other.title}, which is in your list)")
+        if ticked:
+            _out(f"Ticked {ticked} patch file(s) for mods in your list (--no-auto-patches to skip).")
     if not args.yes:
         queue = [p for p in plans if p.needs_choice and not p.error]
         while queue:
@@ -547,6 +557,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--dry-run", action="store_true", help="look everything up, download nothing")
     run.add_argument("--add-requirements", action="store_true",
                      help="add missing requirements to the list without asking")
+    run.add_argument("--no-auto-patches", action="store_true",
+                     help="don't tick patch files meant for other mods in the list")
     run.add_argument("--compat", action="store_true",
                      help="also check how the mods in the list relate to each other "
                           "(requirements, patches, conflicts)")

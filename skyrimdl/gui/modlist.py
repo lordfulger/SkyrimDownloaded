@@ -138,8 +138,30 @@ class ListMixin:
 
         def work():
             missing, checked = missing_requirements(client, plans)
-            self.events.put(("requirements", (missing, checked)))
+            # Also look for patch files for other mods in the list (no pop-up: they're just ticked).
+            report = compat.check(plans, client)
+            self.events.put(("requirements", (missing, checked, report)))
         self._background(work)
+
+    def _patch_key(self, plan, fid) -> str:
+        return f"{plan.entry.key}:{fid}"
+
+    def auto_tick_patches(self, report) -> int:
+        """Tick patch files meant for other mods in the list (e.g. EasyNPC's files for
+        Pandorable / Interesting NPCs when those are in the list too), unless you unticked them."""
+        declined = self.__dict__.setdefault("patch_declined", set())
+        ticked = 0
+        for f in report.by_kind(compat.PATCH):
+            plan, fid = f.plan, f.file_id
+            opt = plan.option(fid)
+            if (plan.error or plan.skipped or opt is None or opt.fit.hidden or fid in plan.selected
+                    or self._patch_key(plan, fid) in declined):
+                continue
+            plan.selected.append(fid)
+            ticked += 1
+            if "patches" not in plan.reason:
+                plan.reason = (plan.reason + " + " if plan.reason else "") + "patches for mods in your list"
+        return ticked
 
     # -- requirements: what each mod needs, and adding what's missing ------------
 
@@ -196,11 +218,19 @@ class ListMixin:
             return True
         return False
 
-    def _requirements_done(self, missing, checked) -> None:
+    def _requirements_done(self, missing, checked, report=None) -> None:
+        ticked = 0
+        if report is not None:
+            self.compat = report
+            ticked = self.auto_tick_patches(report)
+            self._fill_tree()
+            if ticked:
+                log.info("Ticked %d patch files for mods in the list", ticked)
         waiting = sum(1 for p in self.plans if p.needs_choice and not p.error)
         self.status_var.set(f"{len(self.plans)} mods looked up"
                             + (f", {waiting} have options to choose" if waiting else "")
-                            + ("" if checked else " (couldn't check requirements)"))
+                            + ("" if checked else " (couldn't check requirements)")
+                            + (f" \u00b7 ticked {ticked} patch file(s) for mods in your list (\u2605)" if ticked else ""))
         new = [m for m in missing if m.link not in self.declined]
         if new:
             dlg = RequirementsDialog(self.root, new)

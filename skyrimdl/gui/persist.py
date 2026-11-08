@@ -75,6 +75,7 @@ class PersistMixin:
             list_path=str(self.list_path or ""), plans=self.plans, report=self.compat,
             requirements=reqs, declined=self.declined,
             ui={"show_other": self.other_var.get(), "show_old": self.old_var.get(),
+                "patch_declined": sorted(self.__dict__.get("patch_declined", set())),
                 "geometry": self.root.geometry(), "sash": sash})
         if wait:
             self._write_session(data)
@@ -132,6 +133,7 @@ class PersistMixin:
             self.compat = restored.report
             self._req_cache = {k: v for k, v in restored.requirements.items()}
             self.declined = restored.declined
+            self.patch_declined = set(restored.ui.get("patch_declined") or [])
             ui = restored.ui
             self.other_var.set(bool(ui.get("show_other")))
             self.old_var.set(bool(ui.get("show_old")))

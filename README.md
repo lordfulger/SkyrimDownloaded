@@ -225,6 +225,14 @@ Your work is saved as you go and when you close the app. Next time it opens, eve
 
 The saved work is in `%APPDATA%\SkyrimDownloaded\session.json`. It holds what Nexus said when you last looked the mods up, so press **Look up mods** to refresh it if a while has passed. Your choices are kept.
 
+## Patches for mods in your list are ticked by themselves
+
+After **Look up mods**, any file on a mod's Files tab that's meant for another mod in your list gets ticked. For example, EasyNPC's files for Pandorable or Interesting NPCs are ticked when those mods are in your list too.
+- These files are marked ★ in the list. If you untick one, it stays unticked, even after another lookup or a restart.
+- Files for other Skyrim versions are never ticked.
+- This covers patches that are separate files on Nexus. Options inside a mod's installer window (FOMOD) are chosen when it installs.
+- Command line: on by default; `--no-auto-patches` turns it off.
+
 ## Compatibility check
 
 The check catches things a collection's author would normally have sorted out. For each mod in your list it looks at:

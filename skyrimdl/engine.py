@@ -15,7 +15,7 @@ from .gameversion import GameTarget
 from .downloader import Cancelled, download, safe_file_name
 from .links import ListEntry
 from .managers import ManagerError, Target, nxm_url
-from .nexus import ModInfo, NexusClient, NexusError, Requirement
+from .nexus import ModInfo, NexusClient, NexusError, Requirement, StoppedError
 from .selection import FileOption, choose, sort_options
 
 
@@ -59,6 +59,9 @@ def resolve_one(client: NexusClient, entry: ListEntry,
             plan.error = f"not available on Nexus ({plan.mod.status})"
             return plan
         plan.options = sort_options([FileOption.from_api(f) for f in client.files(entry.game, entry.mod_id)])
+    except StoppedError:
+        plan.error = "not looked up - stopped (Look up mods carries on)"
+        return plan
     except NexusError as err:
         plan.error = str(err) if err.status != 404 else "not found on Nexus (removed, hidden or wrong link)"
         return plan
@@ -291,7 +294,7 @@ class Runner:
             with self._launch_lock:
                 note = self.target.after_download(job.path, job.plan.mod, job.option, self.install)
             self._emit(job, DONE, note)
-        except Cancelled:
+        except (Cancelled, StoppedError):
             self._emit(job, STOPPED, "stopped - start again to pick up where it left off")
         except (NexusError, ManagerError, OSError, RuntimeError) as err:
             self._emit(job, FAILED, str(err))

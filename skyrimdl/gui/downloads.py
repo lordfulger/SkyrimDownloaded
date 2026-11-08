@@ -64,7 +64,7 @@ class DownloadMixin:
             self.tree.item(row, open=bool(plan.selected) and not plan.error)
         total = sum(j.option.approx_bytes or 0 for j in self.jobs) or 1
         self.progress.configure(maximum=total, value=0)
-        self.cancel = threading.Event()
+        self.new_operation()
         runner = Runner(self.client, target, mode=mode, install=self.install_var.get(),
                         parallel=self.settings.parallel,
                         on_event=lambda job: self.events.put(("job", job)), cancel=self.cancel)

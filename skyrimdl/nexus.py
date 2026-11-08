@@ -64,6 +64,10 @@ class AuthError(NexusError):
     pass
 
 
+class StoppedError(NexusError):
+    """The user pressed Stop."""
+
+
 @dataclass
 class Account:
     user_id: int
@@ -174,6 +178,7 @@ class NexusClient:
         self.refresh = refresh
         self.requests_made = 0    # v1 API requests sent (these count against the limit)
         self.requests_saved = 0   # answered from what was saved earlier
+        self.cancel = None        # a threading.Event: when set, requests stop ("Stop" button)
 
     # -- plumbing ---------------------------------------------------------
 
@@ -206,6 +211,7 @@ class NexusClient:
         attempt = 0
         while True:
             attempt += 1
+            self._check_stop()
             req = urllib.request.Request(url, headers=self._headers())
             with self._lock:
                 self.requests_made += 1
@@ -230,19 +236,31 @@ class NexusClient:
                         raise NexusError(
                             "Out of Nexus API requests for now (" + self.rate.describe()
                             + "). Try again in an hour.", 429) from None
-                    time.sleep(_retry_after(err, attempt))
+                    self._wait(_retry_after(err, attempt))
                     continue
                 if err.code >= 500 and attempt <= self.max_retries:
-                    time.sleep(2 ** attempt)
+                    self._wait(2 ** attempt)
                     continue
                 raise NexusError(f"Nexus API {err.code}: {message}", err.code) from None
             except (urllib.error.URLError, socket.timeout, ConnectionError, TimeoutError,
                     http.client.HTTPException, json.JSONDecodeError) as err:
                 if attempt <= self.max_retries:
-                    time.sleep(2 ** attempt)
+                    self._wait(2 ** attempt)
                     continue
                 reason = getattr(err, "reason", err)
                 raise NexusError(f"Can't reach Nexus Mods: {reason}") from None
+
+    def _check_stop(self) -> None:
+        if self.cancel is not None and self.cancel.is_set():
+            raise StoppedError("stopped")
+
+    def _wait(self, seconds: float) -> None:
+        """Wait before retrying - but not if Stop is pressed meanwhile."""
+        if self.cancel is not None:
+            if self.cancel.wait(seconds):
+                raise StoppedError("stopped")
+        else:
+            time.sleep(seconds)
 
     def _forget(self, path: str) -> None:
         with self._lock:
@@ -340,6 +358,8 @@ class NexusClient:
                 with self._lock:
                     self._cache[cache_key] = out
                 return out
+        if self.cancel is not None and self.cancel.is_set():
+            return None
         data = None
         for query in (REQUIREMENTS_QUERY, REQUIREMENTS_QUERY_NO_DLC):
             data = self._graphql(query, {"modId": int(mod_id), "gameDomainName": game}, "modRequirements")
@@ -385,6 +405,7 @@ class NexusClient:
 
     def _graphql(self, query: str, variables: dict, field: str, raise_errors: bool = False):
         """One field of a v2 answer, or None if the query failed."""
+        self._check_stop()
         body = json.dumps({"query": query, "variables": variables}).encode()
         headers = dict(self._headers(), **{"Content-Type": "application/json"})
         req = urllib.request.Request(self.graphql_url, data=body, headers=headers, method="POST")

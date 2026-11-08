@@ -269,3 +269,41 @@ def check(plans, client=None, *, workers: int = 4) -> Report:
 
     report.findings.sort(key=lambda f: (ORDER[f.kind], f.plan.title.lower()))
     return report
+
+
+_NOT_FOR_AUTO = re.compile(r"\b(?:legacy|outdated|deprecated|obsolete|old(?:er)? versions?|beta|alpha|"
+                           r"test(?:ing)?|experimental|wip|dev(?:elopment)? build)\b", re.I)
+
+
+def patches_to_tick(report, skip=lambda plan, file_id: False) -> list:
+    """The patch files worth ticking by themselves: (plan, file_id) pairs.
+
+    Careful on purpose:
+    * only files in a mod's Main / Optional / Misc sections (never "Updates"), for your
+      game version, and not called beta / legacy / outdated / test...;
+    * one file per mod it's for - when a mod has several patches for the same other
+      mod (v1.0, v1.2...), only the newest; none if you already picked one yourself;
+    * ``skip`` says no for ones you unticked before.
+    """
+    from .selection import MAIN, MISC, OPTIONAL
+    best: dict = {}
+    for f in report.by_kind(PATCH):
+        plan, fid = f.plan, f.file_id
+        opt = plan.option(fid) if hasattr(plan, "option") else None
+        if (opt is None or plan.error or plan.skipped or fid in plan.selected or skip(plan, fid)
+                or opt.category not in (MAIN, OPTIONAL, MISC) or opt.fit.hidden
+                or _NOT_FOR_AUTO.search(f"{opt.name} {opt.file_name}")):
+            continue
+        key = (id(plan), id(f.other))
+        if key in best and best[key][1].uploaded >= opt.uploaded:
+            continue
+        best[key] = (plan, opt, f.other)
+    picks = []
+    for plan, opt, other in best.values():
+        # Already picked a patch for that mod yourself? Leave it be.
+        mine = [o for o in plan.selected_options()
+                if any(g.kind == PATCH and g.plan is plan and g.other is other and g.file_id == o.file_id
+                       for g in report.findings)]
+        if not mine:
+            picks.append((plan, opt.file_id))
+    return picks

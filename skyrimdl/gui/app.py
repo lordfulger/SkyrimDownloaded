@@ -172,9 +172,12 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         panes = ttk.PanedWindow(outer, orient="vertical")
         panes.pack(fill="both", expand=True, **pad)
         self.panes = panes
-        # Give the mod list about a third of the space to start with.
-        self.root.after(250, lambda: panes.winfo_height() > 50 and panes.sashpos(
-            0, max(150, int(panes.winfo_height() * 0.33))))
+        # The mod list gets a share of the space (a third to start with), set once the window
+        # has its real size, and never less than a few lines.
+        self.sash_fraction = 0.33
+        self._sash_ready = False
+        panes.bind("<Configure>", lambda e: self._place_sash(), add="+")
+        panes.bind("<ButtonRelease-1>", lambda e: self._sash_moved(), add="+")
 
         # List
         lst = ttk.LabelFrame(panes, text="3. Mod list (Nexus links, nxm:// links or mod numbers, one per line)")
@@ -322,9 +325,18 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self._set_busy(True)
         threading.Thread(target=work, daemon=True).start()
 
+    def new_operation(self) -> threading.Event:
+        """A fresh Stop signal for the work about to start (Nexus requests follow it too)."""
+        self.cancel = threading.Event()
+        if self.client is not None:
+            self.client.cancel = self.cancel
+        return self.cancel
+
     def _set_busy(self, busy: bool) -> None:
         self._busy_count = max(0, getattr(self, "_busy_count", 0) + (1 if busy else -1))
         busy = self._busy_count > 0
+        if not busy and self.cancel.is_set():
+            self.status_var.set("Stopped. Start again to carry on where it left off.")
         self.busy = busy
         state = "disabled" if busy else "normal"
         self.lookup_btn.configure(state=state)
@@ -461,6 +473,34 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
             os.startfile(str(folder))  # noqa: S606
         else:
             webbrowser.open(folder.as_uri())
+
+    LIST_MIN = 130  # pixels: the mod list never gets squeezed below this
+
+    def _place_sash(self) -> None:
+        """Put the divider between the mod list and the files at its share of the height."""
+        try:
+            height = self.panes.winfo_height()
+            if height < 300:
+                return  # not laid out yet
+            want = max(self.LIST_MIN, int(height * self.sash_fraction))
+            want = min(want, height - 200)  # leave the files list room too
+            if not self._sash_ready or abs(self.panes.sashpos(0) - want) > 2:
+                self.panes.sashpos(0, want)
+                self._sash_ready = True
+        except tk.TclError:
+            pass
+
+    def _sash_moved(self) -> None:
+        """Remember where you dragged the divider (as a share of the height)."""
+        try:
+            height = self.panes.winfo_height()
+            pos = self.panes.sashpos(0)
+            if height >= 300:
+                self.sash_fraction = min(0.8, max(self.LIST_MIN / height, pos / height))
+                self._place_sash()
+                self.save_session()
+        except tk.TclError:
+            pass
 
     def maximize(self) -> None:
         """Fill the screen (the window's maximize button)."""

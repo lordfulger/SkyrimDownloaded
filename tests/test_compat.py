@@ -68,5 +68,35 @@ class CheckTests(unittest.TestCase):
         self.assertTrue({compat.NEEDS, compat.PATCH, compat.CONFLICT} <= kinds)
 
 
+class PatchPickTests(unittest.TestCase):
+    def setUp(self):
+        from skyrimdl.engine import ModPlan
+        from skyrimdl.links import ListEntry
+        from skyrimdl.nexus import ModInfo
+        from skyrimdl.selection import FileOption
+
+        def opt(fid, name, cat=3, up=0):
+            return FileOption(fid, name, name.replace(" ", "_") + ".7z", "1", cat, 1000, uploaded=up)
+        self.easy = ModPlan(ListEntry("skyrimspecialedition", 1), ModInfo("skyrimspecialedition", 1, "EasyNPC"),
+                            options=[opt(10, "Main", 1), opt(11, "Pandorable patch v1.0", up=1),
+                                     opt(12, "Pandorable patch v1.2", up=2), opt(13, "Pandorable patch beta", up=3),
+                                     opt(14, "Interesting NPCs patch", 2, up=1)], selected=[10])
+        self.pandorable = ModPlan(ListEntry("skyrimspecialedition", 2), ModInfo("skyrimspecialedition", 2, "Pandorable"))
+        self.inpc = ModPlan(ListEntry("skyrimspecialedition", 3), ModInfo("skyrimspecialedition", 3, "Interesting NPCs"))
+        self.report = compat.Report(findings=[
+            compat.Finding(compat.PATCH, self.easy, self.pandorable, "", file_id=f) for f in (11, 12, 13)] + [
+            compat.Finding(compat.PATCH, self.easy, self.inpc, "", file_id=14)])
+
+    def test_newest_patch_only_no_beta_no_updates(self):
+        picks = compat.patches_to_tick(self.report)
+        self.assertEqual([(p.title, f) for p, f in picks], [("EasyNPC", 12)])
+
+    def test_your_own_pick_and_unticked_ones_are_respected(self):
+        self.easy.selected.append(11)   # you picked v1.0 yourself
+        self.assertEqual(compat.patches_to_tick(self.report), [])
+        self.easy.selected.remove(11)
+        self.assertEqual(compat.patches_to_tick(self.report, skip=lambda p, f: f == 12), [(self.easy, 11)])
+
+
 if __name__ == "__main__":
     unittest.main()

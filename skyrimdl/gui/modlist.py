@@ -61,6 +61,7 @@ class ListMixin:
         game, slug, revision = parsed
         client = self.client
         self.status_var.set("Getting the collection from Nexus\u2026")
+        self.new_operation()
 
         def work():
             data = client.collection(slug, game, revision)
@@ -131,13 +132,19 @@ class ListMixin:
             self._lookup_cost = (client.requests_made - made, client.requests_saved - saved)
             self.events.put(("plans", plans))
         self.refresh_var.set(False)
+        self.new_operation()
         self._background(work)
 
     def _check_requirements(self) -> None:
         client, plans = self.client, list(self.plans)
 
+        if self.cancel.is_set():  # Stop was pressed during the lookup: skip the checks
+            return
+
         def work():
             missing, checked = missing_requirements(client, plans)
+            if self.cancel.is_set():
+                return
             # Also look for patch files for other mods in the list (no pop-up: they're just ticked).
             report = compat.check(plans, client)
             self.events.put(("requirements", (missing, checked, report)))
@@ -151,12 +158,8 @@ class ListMixin:
         Pandorable / Interesting NPCs when those are in the list too), unless you unticked them."""
         declined = self.__dict__.setdefault("patch_declined", set())
         ticked = 0
-        for f in report.by_kind(compat.PATCH):
-            plan, fid = f.plan, f.file_id
-            opt = plan.option(fid)
-            if (plan.error or plan.skipped or opt is None or opt.fit.hidden or fid in plan.selected
-                    or self._patch_key(plan, fid) in declined):
-                continue
+        for plan, fid in compat.patches_to_tick(
+                report, skip=lambda p, f: self._patch_key(p, f) in declined):
             plan.selected.append(fid)
             ticked += 1
             if "patches" not in plan.reason:

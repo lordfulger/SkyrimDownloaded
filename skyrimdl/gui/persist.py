@@ -67,7 +67,7 @@ class PersistMixin:
             reqs.update({k: v for k, v in list(self.client._cache.items())
                          if k.startswith("req:") and v is not None})
         try:
-            sash = self.panes.sashpos(0)
+            sash = round(self.sash_fraction, 3)
         except tk.TclError:
             sash = None
         data = session.snapshot(
@@ -145,7 +145,11 @@ class PersistMixin:
                 except tk.TclError:
                     pass
             if ui.get("sash"):
-                self.root.after(400, lambda: self.panes.sashpos(0, int(ui["sash"])))
+                sash = float(ui["sash"])
+                # Older versions saved pixels; now it's a share of the height.
+                self.sash_fraction = sash if 0 < sash < 1 else 0.33
+                self._sash_ready = False
+                self._place_sash()
             self._fill_tree()
         finally:
             self._restoring = False

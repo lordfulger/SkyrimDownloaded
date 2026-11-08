@@ -115,6 +115,9 @@ class Handler(BaseHTTPRequestHandler):
         state = self.server.state
         path = urlsplit(self.path).path
         state["requests"].append(self.path)
+        if state.get("delay"):
+            import time
+            time.sleep(state["delay"])
         if path.endswith("/releases/latest"):  # GitHub, for the update check
             tag = state.get("latest_tag", "v9.9.9")
             return self._json(200, {"tag_name": tag, "html_url": f"https://example.com/{tag}",

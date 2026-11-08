@@ -41,6 +41,7 @@ class ToolsMixin:
         if not self._requests_ok(2 * len(todo), f"Checking {len(todo)} mods for updates"):
             return
         self.status_var.set("Checking Nexus for newer files…")
+        self.new_operation()
 
         def work():
             found, errors = updates.check_updates(
@@ -95,6 +96,7 @@ class ToolsMixin:
             return
         client, plans = self.client, list(self.plans)
         self.status_var.set("Checking how your mods relate to each other\u2026")
+        self.new_operation()
 
         def work():
             self.events.put(("compat", (compat.check(plans, client), auto)))

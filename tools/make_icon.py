@@ -15,6 +15,11 @@ w, h = logo.size
 side = int(min(w, h) * 0.97)            # the emblem fills the middle of the picture
 left, top = (w - side) // 2, (h - side) // 2
 square = logo.crop((left, top, left + side, top + side))
+# Keep just the round emblem: corners transparent, so the icon sits cleanly on the taskbar.
+from PIL import ImageDraw
+mask = Image.new("L", (side * 4, side * 4), 0)
+ImageDraw.Draw(mask).ellipse((0, 0, side * 4 - 1, side * 4 - 1), fill=255)
+square.putalpha(mask.resize((side, side), Image.LANCZOS))
 square.resize((256, 256), Image.LANCZOS).save(ROOT / "assets" / "icon.png")
 square.save(ROOT / "assets" / "icon.ico",
             sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])

@@ -6,3 +6,5 @@ dist/
 *.egg-info/
 *.choices.json
 .venv/
+assets/icon.png
+assets/icon.ico

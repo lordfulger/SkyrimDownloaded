@@ -76,7 +76,7 @@ class PersistMixin:
             requirements=reqs, declined=self.declined,
             ui={"show_other": self.other_var.get(), "show_old": self.old_var.get(),
                 "patch_declined": sorted(self.__dict__.get("patch_declined", set())),
-                "geometry": self.root.geometry(), "sash": sash})
+                "geometry": self.root.geometry(), "maximized": self.is_maximized(), "sash": sash})
         if wait:
             self._write_session(data)
             return
@@ -137,7 +137,9 @@ class PersistMixin:
             ui = restored.ui
             self.other_var.set(bool(ui.get("show_other")))
             self.old_var.set(bool(ui.get("show_old")))
-            if ui.get("geometry"):
+            if ui.get("maximized", True):
+                self.maximize()  # full screen unless you un-maximized it last time
+            elif ui.get("geometry"):
                 try:
                     self.root.geometry(ui["geometry"])
                 except tk.TclError:

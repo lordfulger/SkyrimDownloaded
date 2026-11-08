@@ -31,7 +31,8 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
 
         root.title(f"SkyrimDownloaded {__version__}")
         height = max(640, min(940, root.winfo_screenheight() - 90))
-        root.geometry(f"1100x{height}")
+        root.geometry(f"1100x{height}")  # the size when not maximized
+        self.maximize()
         root.minsize(820, 600)
         self.theme = theme_mod.Theme(root, settings.theme)
         root._theme = self.theme  # dialogs pick it up from their parent
@@ -460,6 +461,24 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
             os.startfile(str(folder))  # noqa: S606
         else:
             webbrowser.open(folder.as_uri())
+
+    def maximize(self) -> None:
+        """Fill the screen (the window's maximize button)."""
+        try:
+            if sys.platform == "win32":
+                self.root.state("zoomed")
+            else:
+                self.root.attributes("-zoomed", True)
+        except tk.TclError:
+            pass
+
+    def is_maximized(self) -> bool:
+        try:
+            if sys.platform == "win32":
+                return self.root.state() == "zoomed"
+            return bool(self.root.attributes("-zoomed"))
+        except tk.TclError:
+            return False
 
     def _parent(self):
         """The window a message should sit on: an open dialog if there is one."""

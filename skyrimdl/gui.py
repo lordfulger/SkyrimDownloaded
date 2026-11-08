@@ -21,7 +21,7 @@ from . import finder
 from . import theme as theme_mod
 from .managers import ManagerError, make_target
 from .nexus import NexusClient, NexusError
-from . import compat, gameversion
+from . import compat, gameversion, session
 from .scrolling import AutoScroll, wheel_scroll
 from .text import bbcode_to_text
 from .engine import rechoose
@@ -57,6 +57,10 @@ class App:
         root.minsize(820, 600)
         self.theme = theme_mod.Theme(root, settings.theme)
         root._theme = self.theme  # dialogs pick it up from their parent
+        self.session_file = session.session_path()
+        self._save_job = None
+        self._req_cache: dict = {}     # requirements restored from the last session
+        self._restoring = True         # no saving until the last session is back
         self._watching_clipboard = False
         self._clip_seen: set[str] = set()
         self._build()
@@ -179,6 +183,8 @@ class App:
         bar.pack(fill="x", padx=6, pady=4)
         ttk.Button(bar, text="Open list\u2026", command=self.open_list).pack(side="left")
         ttk.Button(bar, text="Save list\u2026", command=self.save_list).pack(side="left", padx=4)
+        ttk.Button(bar, text="Save progress", command=self.save_progress).pack(side="left")
+        ttk.Button(bar, text="Start over", command=self.start_over).pack(side="left", padx=4)
         self.list_label = tk.StringVar(value="(type or paste links below)")
         ttk.Label(bar, textvariable=self.list_label).pack(side="left", padx=8)
         self.lookup_btn = ttk.Button(bar, text="Look up mods \u25B6", command=self.lookup)
@@ -198,6 +204,7 @@ class App:
         box.rowconfigure(0, weight=1)
         box.columnconfigure(0, weight=1)
         AutoScroll(self.list_text)
+        self.list_text.bind("<<Modified>>", self._list_edited)
         panes.add(lst, weight=1)
 
         # Plan
@@ -462,6 +469,7 @@ class App:
         if self.key_var.get():
             self.login(quiet=True)
         # Fill in whatever's still blank from a quick look around (registry, usual places).
+        self._restore_session()
         self.find_folders(deep=False)
         if not s.game_version:
             self.root.after(300, lambda: self.detect_game(quiet=True))
@@ -512,6 +520,13 @@ class App:
         self.stop_btn.configure(state="normal" if busy else "disabled")
 
     def _pump(self) -> None:
+        try:
+            self._pump_once()
+        except tk.TclError:
+            return  # the window has been closed
+        self.root.after(150, self._pump)
+
+    def _pump_once(self) -> None:
         dirty_jobs = set()
         try:
             while True:
@@ -557,9 +572,109 @@ class App:
             pass
         if dirty_jobs:
             self._refresh_jobs(dirty_jobs)
-        self.root.after(150, self._pump)
 
     # -- account ----------------------------------------------------------------
+
+    # -- saving and restoring your work ---------------------------------------
+
+    def save_session(self, now: bool = False) -> None:
+        """Save the work in progress (a moment after each change, and on close)."""
+        if self._restoring:
+            return
+        if self._save_job:
+            try:
+                self.root.after_cancel(self._save_job)
+            except tk.TclError:
+                pass
+            self._save_job = None
+        if not now:
+            self._save_job = self.root.after(1200, lambda: self.save_session(now=True))
+            return
+        reqs = dict(self._req_cache)
+        if self.client:
+            reqs.update({k: v for k, v in list(self.client._cache.items())
+                         if k.startswith("req:") and v is not None})
+        try:
+            sash = self.panes.sashpos(0)
+        except tk.TclError:
+            sash = None
+        try:
+            session.save(
+                self.session_file, list_text=self.list_text.get("1.0", "end-1c"),
+                list_path=str(self.list_path or ""), plans=self.plans, report=self.compat,
+                requirements=reqs, declined=self.declined,
+                ui={"show_other": self.other_var.get(), "show_old": self.old_var.get(),
+                    "geometry": self.root.geometry(), "sash": sash})
+        except OSError as err:
+            self.status_var.set(f"Couldn't save your progress: {err}")
+
+    def save_progress(self) -> None:
+        self.save_session(now=True)
+        self.status_var.set("Progress saved - it'll all be here next time you open the app.")
+
+    def _list_edited(self, _event=None) -> None:
+        if self.list_text.edit_modified():
+            self.list_text.edit_modified(False)
+            self.save_session()
+
+    def _restore_session(self) -> None:
+        restored = session.load(self.session_file)
+        if not restored or restored.empty:
+            self._restoring = False
+            return
+        self._restoring = True
+        try:
+            self.list_text.delete("1.0", "end")
+            self.list_text.insert("1.0", restored.list_text)
+            self.list_text.edit_modified(False)
+            if restored.list_path:
+                self.list_path = Path(restored.list_path)
+                self.list_label.set(restored.list_path)
+            self.plans = restored.plans
+            for plan in self.plans:  # work out the version fit again for the current game
+                annotate(plan.options, self._target_game())
+            self.compat = restored.report
+            self._req_cache = {k: v for k, v in restored.requirements.items()}
+            self.declined = restored.declined
+            ui = restored.ui
+            self.other_var.set(bool(ui.get("show_other")))
+            self.old_var.set(bool(ui.get("show_old")))
+            if ui.get("geometry"):
+                try:
+                    self.root.geometry(ui["geometry"])
+                except tk.TclError:
+                    pass
+            if ui.get("sash"):
+                self.root.after(400, lambda: self.panes.sashpos(0, int(ui["sash"])))
+            self._fill_tree()
+        finally:
+            self._restoring = False
+        waiting = sum(1 for p in self.plans if p.needs_choice and not p.error)
+        msg = f"Welcome back - restored your work from {restored.when}"
+        if self.plans:
+            msg += f" ({len(self.plans)} mods" + (f", {waiting} still to choose" if waiting else "") + ")"
+        self.status_var.set(msg + ".")
+
+    def start_over(self) -> None:
+        if (self.plans or self.list_text.get("1.0", "end-1c").strip()) and not messagebox.askyesno(
+                "Start over", "Clear the mod list, the looked-up mods and your choices?\n\n"
+                "(A list you saved to a file stays on disk.)", parent=self.root):
+            return
+        self._restoring = True
+        try:
+            self.plans, self.compat, self.jobs = [], None, []
+            self._req_cache, self.declined = {}, set()
+            self.list_text.delete("1.0", "end")
+            self.list_path = None
+            self.list_label.set("(type or paste links below)")
+            self._fill_tree()
+            self.info.configure(state="normal")
+            self.info.delete("1.0", "end")
+            self.info.configure(state="disabled")
+        finally:
+            self._restoring = False
+        session.clear(self.session_file)
+        self.status_var.set("Started over.")
 
     # -- logging in with Nexus ------------------------------------------------
 
@@ -778,6 +893,7 @@ class App:
     # -- the plan tree -------------------------------------------------------
 
     def _fill_tree(self) -> None:
+        self.save_session()
         self.tree.delete(*self.tree.get_children())
         self._row_option.clear()
         self._row_plan.clear()
@@ -849,6 +965,7 @@ class App:
         self.tree.item(row, tags=() if on else ("off",))
         self._mark_chosen(plan)
         self._update_plan_summary()
+        self.save_session()
 
     def _mark_chosen(self, plan: ModPlan) -> None:
         plan.needs_choice = False
@@ -944,8 +1061,9 @@ class App:
                 for n in notes[:12]:
                     put(f"\u2022 {n}\n")
         reqs = None
-        if self.client and mod:
-            reqs = self.client._cache.get(f"req:{plan.entry.game}/{plan.entry.mod_id}")
+        if mod:
+            key = f"req:{plan.entry.game}/{plan.entry.mod_id}"
+            reqs = (self.client._cache.get(key) if self.client else None) or self._req_cache.get(key)
         if reqs:
             have = {p.entry.mod_id for p in self.plans}
             put("\nRequirements on Nexus\n", "h")
@@ -1151,6 +1269,7 @@ class App:
             return
         self.cancel.set()
         self._save_settings()
+        self.save_session(now=True)
         self.root.destroy()
 
 

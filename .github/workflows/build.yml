@@ -1,7 +1,9 @@
 name: Build
 
 # Every push: run the tests and build SkyrimDownloaded.exe (a download under Artifacts).
-# Pushing a version tag (e.g. v1.6.0) also publishes a GitHub release with the .exe attached.
+# To publish a release with the .exe attached, either push a version tag (e.g. v1.6.0), or on
+# GitHub: Actions > Build > Run workflow, pick the branch, tick "Publish a release" (the tag
+# v<version in skyrimdl/__init__.py> is made for you).
 # If SignPath is set up (see SIGNING.md), the .exe is code-signed first.
 
 on:
@@ -10,6 +12,11 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Publish a release of this version (tag v<version>) with the .exe"
+        type: boolean
+        default: false
 
 jobs:
   test:
@@ -84,7 +91,7 @@ jobs:
           path: dist/SkyrimDownloaded.exe
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release)
     needs: exe
     runs-on: ubuntu-latest
     permissions:
@@ -99,6 +106,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="v$(python3 -c 'import skyrimdl; print(skyrimdl.__version__)')"
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::A release called $tag already exists. Bump the version in skyrimdl/__init__.py first."
+            exit 1
+          fi
           signed="${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}"
           {
             echo "**Download:** \`SkyrimDownloaded.exe\` below - no install or Python needed. Needs a Nexus Mods Premium account."
@@ -107,8 +123,8 @@ jobs:
               echo "Windows may say *\"Windows protected your PC\"* the first time: click **More info**, then **Run anyway**. The app isn't code-signed yet."
               echo
             fi
-            echo "See the [README](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/README.md) for how to use it."
+            echo "See the [README](https://github.com/${GITHUB_REPOSITORY}/blob/${tag}/README.md) for how to use it."
           } > notes.md
-          gh release create "$GITHUB_REF_NAME" dist/SkyrimDownloaded.exe \
-            --title "SkyrimDownloaded $GITHUB_REF_NAME" \
+          gh release create "$tag" dist/SkyrimDownloaded.exe --target "$GITHUB_SHA" \
+            --title "SkyrimDownloaded $tag" \
             --notes-file notes.md --generate-notes

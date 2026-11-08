@@ -260,17 +260,18 @@ Run `python -m skyrimdl run --help` for everything.
 
 ## Releases
 
-Pushing a version tag publishes a release automatically. The Build workflow builds `SkyrimDownloaded.exe` (code-signed, once [SIGNING.md](SIGNING.md) is set up) and attaches it to a new release:
+Releases are published by the **Build** workflow. It builds `SkyrimDownloaded.exe` (code-signed, once [SIGNING.md](SIGNING.md) is set up) and attaches it to a new release. Start it either way:
 
-```bash
-git tag v1.6.0
-```
+- **On GitHub:** go to **Actions → Build → Run workflow**, pick `main`, tick **Publish a release** and press **Run workflow**. The release is tagged with the version in `skyrimdl/__init__.py`, so bump that first.
+- **With git:** push a version tag that matches that version.
 
-```bash
-git push origin v1.6.0
-```
+  ```bash
+  git tag v1.6.0
+  ```
 
-The tag has to match the version in `skyrimdl/__init__.py`.
+  ```bash
+  git push origin v1.6.0
+  ```
 
 ## License
 

@@ -35,6 +35,10 @@ _BARE_ID = re.compile(r"^\s*(?P<mod>\d+)\s*$")
 _COMMENT = re.compile(r"(^|\s)#.*$")
 
 
+# "## 02 - ENGINE, SKSE LIBRARIES" starts a section (an MO2 separator). "#!" lines are settings.
+_SECTION = re.compile(r"^\s*##(?!#)\s*(.*?\S)\s*#*\s*$")
+
+
 class ListError(ValueError):
     pass
 
@@ -136,6 +140,7 @@ class ListEntry:
     line_no: int = 0
     nxm_key: str | None = None   # from an nxm:// link clicked on the site
     nxm_expires: int | None = None
+    section: str = ""          # the "## Heading" it's under (an MO2 separator)
 
     @property
     def key(self) -> str:
@@ -201,7 +206,12 @@ def parse_list(text: str, default_game: str = DEFAULT_GAME) -> tuple[list[ListEn
     """Return the entries in list order (same mod twice is merged) and any problems."""
     merged: dict[str, ListEntry] = {}
     problems: list[str] = []
+    section = ""
     for line_no, line in enumerate(text.splitlines(), start=1):
+        heading = _SECTION.match(line)
+        if heading:
+            section = heading.group(1).strip()
+            continue
         try:
             found = parse_line(line, line_no, default_game)
         except ListError as err:
@@ -209,6 +219,7 @@ def parse_list(text: str, default_game: str = DEFAULT_GAME) -> tuple[list[ListEn
             problems.append(msg if msg.startswith("line ") else f"line {line_no}: {msg}")
             continue
         for entry in found:
+            entry.section = section
             old = merged.get(entry.key)
             if old is None:
                 merged[entry.key] = entry

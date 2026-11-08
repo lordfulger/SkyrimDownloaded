@@ -98,7 +98,7 @@ class Target:
         """Ask the mod manager to download (and maybe install) an nxm:// link itself."""
         self._launch(self.handoff_args(url, install))
 
-    def prepare(self, jobs) -> None:
+    def prepare(self, jobs, install: bool = False) -> None:
         """Called before downloads start (MO2 writes its install plan here)."""
 
     def after_download(self, path: Path, mod: ModInfo, option: FileOption,

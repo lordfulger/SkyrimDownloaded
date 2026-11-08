@@ -1,3 +1,3 @@
 """SkyrimDownloaded: download a list of Nexus mods into Vortex or Mod Organizer 2."""
 
-__version__ = "1.7.1"
+__version__ = "1.8.0"

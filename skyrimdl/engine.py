@@ -228,7 +228,7 @@ class Runner:
 
     def run(self, jobs: list[Job]) -> list[Job]:
         try:
-            self.target.prepare(jobs)
+            self.target.prepare(jobs, install=self.install)
         except Exception:
             logging.getLogger("skyrimdl").exception("preparing the mod manager")
         todo = []

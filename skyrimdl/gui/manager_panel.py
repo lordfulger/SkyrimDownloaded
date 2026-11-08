@@ -23,7 +23,7 @@ class ManagerMixin:
             ttk.Button(self.paths, text="Browse…",
                        command=lambda k=key, w=what: self._browse(k, w)).grid(row=row, column=2)
         self.paths.columnconfigure(1, weight=1)
-        self.install_check.configure(state="normal" if kind == "vortex" else "disabled")
+        self.install_check.configure(state="normal")
         if kind == "mo2":
             try:
                 has = mo2addon.addon_installed(self._target().exe())

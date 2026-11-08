@@ -27,7 +27,14 @@ def fake_mobase():
     class VersionInfo:
         def __init__(self, *a):
             self.parts = a
+    class GuessedString(str):
+        pass
+
+    class PluginSetting:
+        def __init__(self, *a):
+            self.args = a
     m.IPluginTool, m.ReleaseType, m.VersionInfo = IPluginTool, ReleaseType, VersionInfo
+    m.GuessedString, m.PluginSetting = GuessedString, PluginSetting
     return m
 
 
@@ -69,6 +76,7 @@ class FakeOrganizer:
         self.list = FakeModList(list(mods))
         self.cancel = set(cancel)
         self.installed = []
+        self.settings = {}
 
     def modList(self):
         return self.list
@@ -89,6 +97,24 @@ class FakeOrganizer:
     def refresh(self):
         pass
 
+    def createMod(self, name):
+        mod = FakeMod(str(name), "")
+        self.list.mods[mod.name()] = mod
+        self.list.order.append(mod.name())
+        return mod
+
+    def modsPath(self):
+        return str(self.downloads.parent / "mods")
+
+    def pluginSetting(self, plugin, key):
+        return self.settings.get(key, True)
+
+    def onUserInterfaceInitialized(self, callback):
+        self.ui_callback = callback
+
+
+LIST = "## 01 - TEXTURES\n1000 | file=202,203\n## 02 - INTERFACE\n12604\n266\n"
+
 
 class AddonTests(unittest.TestCase):
     def setUp(self):
@@ -99,7 +125,7 @@ class AddonTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.downloads = self.tmp / "downloads"
 
-    def download_list(self):
+    def download_list(self, auto=False):
         """Download a list into an MO2 instance the way SkyrimDownloaded does (plan + .meta files)."""
         inst = self.tmp / "inst"
         inst.mkdir()
@@ -108,10 +134,10 @@ class AddonTests(unittest.TestCase):
         with FakeNexus() as fake:
             client = NexusClient(GOOD_KEY, base_url=fake.base)
             client.validate()
-            plans = resolve(client, parse_list("1000 | file=202,203\n12604\n266\n")[0])
+            plans = resolve(client, parse_list(LIST)[0])
             jobs = jobs_for(plans)
             from skyrimdl.engine import Runner
-            Runner(client, target, mode="direct").run(jobs)
+            Runner(client, target, mode="direct", install=auto).run(jobs)
         self.downloads = inst / "downloads"
         return jobs
 
@@ -133,7 +159,9 @@ class AddonTests(unittest.TestCase):
         self.assertEqual(result["skipped"], ["USSEP-266-4-3-2.7z"])
         # Left pane: the list's mods at the bottom, in list order; all switched on.
         pt2k, patch = "Pretty Textures - Pretty Textures 2K", "Pretty Textures - USSEP Patch, for real"
-        self.assertEqual(org.list.order, ["Something else", pt2k, patch, "SkyUI", "USSEP"])
+        # Separators from the list's "## ..." headings, each followed by its mods.
+        self.assertEqual(org.list.order, ["Something else", "01 - TEXTURES_separator", pt2k, patch,
+                                          "02 - INTERFACE_separator", "SkyUI", "USSEP"])
         self.assertEqual(org.list.active, {pt2k, patch, "SkyUI", "USSEP"})
         self.assertEqual(len(jobs), 4)
 
@@ -148,6 +176,33 @@ class AddonTests(unittest.TestCase):
         self.assertEqual(len(asked), 1)
         self.assertEqual(result["missing"], ["SkyUI_5_2_SE"])
         self.assertIn("USSEP-266-4-3-2.7z", result["installed"])
+
+    def test_automatic_mode(self):
+        self.download_list(auto=True)
+        plan = json.loads((self.downloads / mo2addon.PLAN_FILE).read_text())
+        self.assertTrue(plan["auto_install"])
+        self.assertEqual(plan["mods"][0]["separator"], "01 - TEXTURES")
+        org = FakeOrganizer(self.downloads)
+        p = self.plugin.createPlugin()
+        p.init(org)
+        reports = []
+        p._report = reports.append
+        # One download hasn't arrived yet: wait, then ask after a long quiet spell.
+        skyui = self.downloads / "SkyUI_5_2_SE-12604-5-2SE.7z"
+        skyui.rename(skyui.with_suffix(".unfinished"))
+        self.assertIsNone(p.check_auto(now=1000))
+        self.assertIsNone(p.check_auto(now=1100))
+        self.assertEqual(p.check_auto(now=1000 + 11 * 60), "ask")
+        # It arrives: install everything, once.
+        skyui.with_suffix(".unfinished").rename(skyui)
+        self.assertEqual(p.check_auto(now=2000), "install")
+        p._install(str(self.downloads), self.plugin.read_plan_file(str(self.downloads)))
+        self.assertEqual(len(reports[0]["installed"]), 4)
+        self.assertIsNone(p.check_auto(now=2100))          # done: not again
+        # Switched off in MO2's settings: does nothing.
+        org.settings["auto_install"] = False
+        self.download_list_again = None
+        self.assertIsNone(p.check_auto(now=3000))
 
     def test_plugin_metadata_and_install_into_mo2(self):
         p = self.plugin.createPlugin()

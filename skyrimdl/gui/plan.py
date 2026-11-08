@@ -63,10 +63,14 @@ class PlanMixin:
         self._job_rows.clear()
         query = self.filter_var.get().strip() if hasattr(self, "filter_var") else ""
         mods_shown = 0
+        section = None
         for plan in self.plans:
             if not self._matches(plan, query):
                 continue
             mods_shown += 1
+            if plan.entry.section and plan.entry.section != section:
+                section = plan.entry.section  # the list's "## ..." heading = an MO2 separator
+                self.tree.insert("", "end", text=f"\u2500\u2500 {section} \u2500\u2500", tags=("section",))
             tags = ("error",) if plan.error else ("choose",) if plan.needs_choice else ()
             if plan.error:
                 status = plan.error

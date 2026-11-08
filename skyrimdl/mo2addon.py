@@ -22,8 +22,10 @@ PLAN_FILE = "SkyrimDownloaded-install.json"
 PLUGIN_FILE = "SkyrimDownloaded.py"
 
 
-def write_plan(downloads: Path, jobs) -> Path:
-    """Write the install plan for these download jobs (list order)."""
+def write_plan(downloads: Path, jobs, auto_install: bool = False) -> Path:
+    """Write the install plan for these download jobs (list order). With
+    ``auto_install`` the add-on installs them by itself once they've all downloaded."""
+    import time
     from .downloader import safe_file_name
     per_mod: dict[int, int] = {}
     for job in jobs:
@@ -39,10 +41,12 @@ def write_plan(downloads: Path, jobs) -> Path:
             "file_id": job.option.file_id,
             "file": job.option.name,
             "archive": safe_file_name(job.option.file_name),
+            "separator": getattr(job.plan.entry, "section", "") or "",
         })
     path = downloads / PLAN_FILE
     downloads.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"format": 1, "mods": mods}, indent=1), encoding="utf-8")
+    plan = {"format": 1, "id": f"{time.time():.3f}", "auto_install": bool(auto_install), "mods": mods}
+    path.write_text(json.dumps(plan, indent=1), encoding="utf-8")
     return path
 
 
@@ -83,22 +87,92 @@ import os
 import mobase
 
 try:
+    from PyQt6.QtCore import QTimer
     from PyQt6.QtGui import QIcon
     from PyQt6.QtWidgets import QApplication, QMessageBox
 except ImportError:  # MO2 before 2.5
     try:
+        from PyQt5.QtCore import QTimer
         from PyQt5.QtGui import QIcon
         from PyQt5.QtWidgets import QApplication, QMessageBox
     except ImportError:  # outside MO2 (tests)
-        QIcon = QApplication = QMessageBox = None
+        QIcon = QApplication = QMessageBox = QTimer = None
+
+import time
+
+STATE_FILE = "SkyrimDownloaded-install.state.json"
+SEPARATOR = "_separator"
+WAIT_BEFORE_ASKING = 10 * 60  # seconds without a new download before asking about missing ones
 
 PLAN_FILE = "SkyrimDownloaded-install.json"
 TITLE = "SkyrimDownloaded"
 
 
-def read_plan(downloads):
+def read_plan_file(downloads):
     with open(os.path.join(downloads, PLAN_FILE), encoding="utf-8") as fh:
-        return json.load(fh).get("mods") or []
+        return json.load(fh)
+
+
+def read_plan(downloads):
+    return read_plan_file(downloads).get("mods") or []
+
+
+def done_plans(downloads):
+    try:
+        with open(os.path.join(downloads, STATE_FILE), encoding="utf-8") as fh:
+            return set(json.load(fh).get("done") or [])
+    except Exception:
+        return set()
+
+
+def mark_done(downloads, plan_id):
+    done = done_plans(downloads) | {plan_id}
+    with open(os.path.join(downloads, STATE_FILE), "w", encoding="utf-8") as fh:
+        json.dump({"done": sorted(done)}, fh)
+
+
+def ensure_separator(organizer, title):
+    """The MO2 separator called ``title`` (created if missing). Returns its mod name."""
+    name = title + SEPARATOR
+    mod_list = organizer.modList()
+    if name in mod_list.allMods():
+        return name
+    try:
+        created = organizer.createMod(mobase.GuessedString(name))
+        if created is not None:
+            return created.name()
+    except Exception:
+        pass
+    # Fallback: a separator is just an empty mod folder whose name ends in "_separator".
+    folder = os.path.join(organizer.modsPath(), name)
+    os.makedirs(folder, exist_ok=True)
+    meta = os.path.join(folder, "meta.ini")
+    if not os.path.exists(meta):
+        with open(meta, "w", encoding="utf-8") as fh:
+            fh.write("[General]\nmodid=0\nversion=\nnewestVersion=\ncategory=\ninstallationFile=\n")
+    try:
+        organizer.refresh()
+    except Exception:
+        pass
+    return name
+
+
+def arrange(organizer, plan, mod_names):
+    """Separators and mods at the bottom of the left pane, in the list's order."""
+    mod_list = organizer.modList()
+    order = []
+    current = None
+    for entry, name in zip(plan, mod_names):
+        sep = (entry.get("separator") or "").strip()
+        if sep and sep != current:
+            current = sep
+            order.append(ensure_separator(organizer, sep))
+        if name:
+            order.append(name)
+    order = [n for n in dict.fromkeys(order) if n in mod_list.allMods()]
+    for name in order:  # each to the bottom, so they end up in list order
+        mod_list.setPriority(name, len(mod_list.allMods()) - 1)
+    return order
 
 
 def meta_index(downloads):
@@ -163,27 +237,30 @@ def run(organizer, downloads, steps, ask_continue=lambda message: True, set_orde
                 by_archive[os.path.basename(mod.installationFile()).lower()] = name
         except Exception:
             pass
+    step_names = []
+    stopped = False
     for entry, archive, already in steps:
-        if not archive:
-            missing.append(entry.get("file") or entry.get("name"))
+        if stopped or not archive:
+            if not archive:
+                missing.append(entry.get("file") or entry.get("name"))
+            step_names.append(None)
             continue
         if already:
             skipped.append(archive)
-            names.append(by_archive.get(archive.lower()))
+            step_names.append(by_archive.get(archive.lower()))
             continue
         mod = organizer.installMod(os.path.join(downloads, archive), entry.get("name") or "")
         if mod is None:
             failed.append(archive)
+            step_names.append(None)
             if not ask_continue(f"{entry.get('name')} wasn't installed (cancelled or failed). Carry on with the rest?"):
-                break
+                stopped = True
             continue
         installed.append(archive)
-        names.append(mod.name())
-    names = [n for n in dict.fromkeys(names) if n]
-    if set_order and names:
-        top = len(mod_list.allMods()) - 1
-        for name in names:  # each to the bottom of the left pane, so they end up in list order
-            mod_list.setPriority(name, top)
+        step_names.append(mod.name())
+    names = [n for n in dict.fromkeys(step_names) if n]
+    if set_order:
+        arrange(organizer, [e for e, _, _ in steps], step_names)
     for name in names:
         try:
             mod_list.setActive(name, True)
@@ -211,7 +288,93 @@ class SkyrimDownloadedInstaller(mobase.IPluginTool):
 
     def init(self, organizer):
         self._organizer = organizer
+        self._busy = False
+        self._timer = None
+        self._seen = (None, -1, 0.0)   # (plan id, downloads present, when that changed)
+        self._asked = set()
+        try:
+            organizer.onUserInterfaceInitialized(lambda window: self._start_watching())
+        except Exception:
+            pass
         return True
+
+    # -- automatic mode: install by itself once everything has downloaded --------
+
+    def _auto_enabled(self):
+        try:
+            value = self._organizer.pluginSetting(self.name(), "auto_install")
+            return value is None or bool(value)
+        except Exception:
+            return True
+
+    def _start_watching(self):
+        if QTimer is None or self._timer is not None:
+            return
+        self._timer = QTimer()
+        self._timer.timeout.connect(self._poll)
+        self._timer.start(4000)
+
+    def check_auto(self, now=None):
+        """What automatic mode should do now: None, "install" or "ask"."""
+        now = time.time() if now is None else now
+        if self._busy or not self._auto_enabled():
+            return None
+        downloads = self._organizer.downloadsPath()
+        try:
+            plan = read_plan_file(downloads)
+        except Exception:
+            return None
+        plan_id = plan.get("id")
+        if not plan.get("auto_install") or not plan_id or plan_id in done_plans(downloads):
+            return None
+        steps = make_steps(self._organizer, downloads, plan.get("mods") or [])
+        present = sum(1 for s in steps if s[1])
+        if self._seen[0] != plan_id or self._seen[1] != present:
+            self._seen = (plan_id, present, now)
+        if present == len(steps):
+            return "install"
+        if present and now - self._seen[2] > WAIT_BEFORE_ASKING and plan_id not in self._asked:
+            return "ask"
+        return None
+
+    def _poll(self):
+        try:
+            action = self.check_auto()
+            if action is None:
+                return
+            downloads = self._organizer.downloadsPath()
+            plan = read_plan_file(downloads)
+            if action == "ask":
+                self._asked.add(plan.get("id"))
+                if not self._ask("Some of SkyrimDownloaded's downloads haven't arrived for a while. "
+                                 "Install the ones that have, now?"):
+                    return
+            self._install(downloads, plan)
+        except Exception as err:  # never let the timer die quietly
+            try:
+                QMessageBox.warning(self._parent, TITLE, f"Automatic install stopped: {err}")
+            except Exception:
+                pass
+
+    def _install(self, downloads, plan):
+        self._busy = True
+        try:
+            steps = make_steps(self._organizer, downloads, plan.get("mods") or [])
+            result = run(self._organizer, downloads, steps, ask_continue=self._ask)
+            mark_done(downloads, plan.get("id"))
+            self._report(result)
+        finally:
+            self._busy = False
+
+    def _report(self, result):
+        lines = [f"Installed: {len(result['installed'])}", f"Already installed: {len(result['skipped'])}"]
+        if result["failed"]:
+            lines.append(f"Not installed: {', '.join(result['failed'][:10])}")
+        if result["missing"]:
+            lines.append(f"Not downloaded yet: {', '.join(str(m) for m in result['missing'][:10])}")
+        lines.append("\nThe mods are in your list's order (with its separators) at the bottom of the left pane. "
+                     "Run LOOT next to sort the plugins.")
+        QMessageBox.information(self._parent, TITLE, "\n".join(lines))
 
     def name(self):
         return "SkyrimDownloaded Installer"
@@ -229,7 +392,11 @@ class SkyrimDownloadedInstaller(mobase.IPluginTool):
         return True
 
     def settings(self):
-        return []
+        try:
+            return [mobase.PluginSetting("auto_install", "Install SkyrimDownloaded's downloads by themselves "
+                                         "once they've all arrived", True)]
+        except Exception:
+            return []
 
     def displayName(self):
         return "SkyrimDownloaded: install downloaded mods"
@@ -272,14 +439,7 @@ class SkyrimDownloadedInstaller(mobase.IPluginTool):
             return
         if not self._ask(text):
             return
-        result = run(self._organizer, downloads, steps, ask_continue=self._ask)
-        lines = [f"Installed: {len(result['installed'])}", f"Already installed: {len(result['skipped'])}"]
-        if result["failed"]:
-            lines.append(f"Not installed: {', '.join(result['failed'][:10])}")
-        if result["missing"]:
-            lines.append(f"Not downloaded yet: {', '.join(str(m) for m in result['missing'][:10])}")
-        lines.append("\nRun LOOT next to sort the plugins.")
-        QMessageBox.information(self._parent, TITLE, "\n".join(lines))
+        self._install(downloads, read_plan_file(downloads))
 
 
 def createPlugin():

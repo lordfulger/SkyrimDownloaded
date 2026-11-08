@@ -117,7 +117,8 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                         variable=self.mode_var).pack(side="left")
         ttk.Radiobutton(top, text="Download here, into its downloads folder", value="direct",
                         variable=self.mode_var).pack(side="left", padx=12)
-        self.install_check = ttk.Checkbutton(top, text="Install after download", variable=self.install_var)
+        self.install_check = ttk.Checkbutton(top, text="Install after download",
+                                             variable=self.install_var)
         self.install_check.pack(side="left", padx=12)
 
         self.paths = ttk.Frame(mgr)

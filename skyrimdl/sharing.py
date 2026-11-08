@@ -42,7 +42,12 @@ def export_text(plans, target: GameTarget | None, *, title: str = "") -> str:
         lines.append(f"#! store: {target.store}")
     lines.append(f"#! exported: {time.strftime('%Y-%m-%d')}")
     lines.append("")
+    section = ""
     for plan in plans:
+        if getattr(plan.entry, "section", "") != section:
+            section = plan.entry.section
+            if section:
+                lines += ["", f"## {section}"]
         url = plan.entry.page_url
         name = _clean(plan.title)
         note = f" - {_clean(plan.entry.note)}" if plan.entry.note and plan.entry.note != plan.title else ""

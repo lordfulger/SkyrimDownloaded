@@ -32,13 +32,23 @@ class DownloadMixin:
             messagebox.showerror("SkyrimDownloaded", "Downloading here needs a Premium account. "
                                  "Choose 'Mod manager downloads' instead.", parent=self._parent())
             return
-        if mode == "handoff" and not messagebox.askokcancel(
-                "Ready?", f"Open {target.name} on your Skyrim setup now, then press OK.\n\n"
-                f"Each file is sent to {target.name}, which downloads it with your Nexus login"
-                + (" and installs it (you'll see installer options there)."
-                   if target.name == "Vortex" and self.install_var.get() else "."),
-                parent=self._parent()):
+        mo2_auto = target.name == "Mod Organizer 2" and self.install_var.get()
+        if mo2_auto and not self._mo2_addon_ready(target):
             return
+        if mode == "handoff":
+            if target.name == "Vortex":
+                how = " and installs it (you'll see installer options there)." if self.install_var.get() else "."
+            elif mo2_auto:
+                how = (". Once they've all arrived, the SkyrimDownloaded add-on in MO2 installs them in your "
+                       "list's order, puts them under the list's separators and switches them on. Mods with "
+                       "installer options show their options window as they install.")
+            else:
+                how = "."
+            if not messagebox.askokcancel(
+                    "Ready?", f"Open {target.name} on your Skyrim setup now, then press OK.\n\n"
+                    f"Each file is sent to {target.name} in your list's order, which downloads it with your "
+                    f"Nexus login{how}", parent=self._parent()):
+                return
         self._save_settings()
         if self._list_is_saved():
             try:
@@ -71,6 +81,30 @@ class DownloadMixin:
             for job in self.jobs:
                 if job.plan is plan and job.option.file_id == fid:
                     self._job_rows[id(job)] = row
+
+    def _mo2_addon_ready(self, target) -> bool:
+        """Installing in MO2 needs the SkyrimDownloaded add-on: offer to add it."""
+        try:
+            exe = target.exe()
+        except ManagerError:
+            messagebox.showerror("Install in MO2", "Point the tool at ModOrganizer.exe in step 2 first.",
+                                 parent=self._parent())
+            return False
+        if mo2addon.addon_installed(exe):
+            return True
+        if not messagebox.askyesno(
+                "Install in MO2", "Installing in MO2 is done by the SkyrimDownloaded add-on, which isn't in "
+                "MO2 yet. Add it now?\n\n(MO2 has to be restarted once after adding it.)", parent=self._parent()):
+            return False
+        try:
+            mo2addon.install_addon(exe)
+        except OSError as err:
+            messagebox.showerror("Install in MO2", f"Couldn't add it: {err}", parent=self._parent())
+            return False
+        self._manager_changed()
+        messagebox.showinfo("Install in MO2", "Added. Restart Mod Organizer 2 now (close and open it), "
+                            "then press Start downloads again.", parent=self._parent())
+        return False
 
     def _refresh_jobs(self, ids: set[int]) -> None:
         for job in self.jobs:
@@ -113,7 +147,10 @@ class DownloadMixin:
         msg = "Finished: " + text
         if failed:
             msg += "\n\nThese didn't work:\n" + "\n".join(f"• {j.label}: {j.note}" for j in failed[:15])
-        if self.manager_var.get() == "mo2" and (counts.get(DONE) or counts.get(SENT)):
+        if self.manager_var.get() == "mo2" and self.install_var.get() and (counts.get(DONE) or counts.get(SENT)):
+            msg += ("\n\nMO2 installs them by itself once they've all downloaded, in your list's order "
+                    "with its separators. Keep MO2 open.")
+        elif self.manager_var.get() == "mo2" and (counts.get(DONE) or counts.get(SENT)):
             msg += ("\n\nTo install them all in your list's order: in MO2, Tools (puzzle piece) > "
                     "\"SkyrimDownloaded: install downloaded mods\"" + ("" if self.addon_btn.cget("text").endswith("\u2713")
                     else " - add it first with \"Add installer to MO2\" in step 2") + ". Or install them one by "

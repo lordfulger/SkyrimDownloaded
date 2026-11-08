@@ -121,21 +121,38 @@ Many mods offer separate files for different versions of the game. SSE Engine Fi
 - **Changing the version later:** files are picked again right away. Mods where you'd already picked a file for the old version are highlighted for you to check.
 - **Command line:** `--game-version 1.6.1170` (or `any`) and `--store gog`. `detect` shows the Skyrim installs it finds.
 
-## Installing everything in MO2 (the MO2 add-on)
+## Installing everything in MO2: collections for MO2, from your own list
 
-Vortex installs mods as they download. MO2 can't be told from outside to install a download, so SkyrimDownloaded comes with a small **MO2 add-on** that does it from inside MO2:
+Tick **Install after download** in step 2 and press **Start downloads**. Then:
 
-1. In step 2, press **Add installer to MO2** (needs `ModOrganizer.exe` set; **Find automatically** usually fills it in). Restart MO2.
-2. Download your list as usual. SkyrimDownloaded leaves an *install plan* (your list's order) in the instance's downloads folder.
-3. In MO2, open **Tools** (the puzzle-piece button) → **SkyrimDownloaded: install downloaded mods**.
+1. Each file is sent to MO2 in your list's order, and MO2 downloads it with your Nexus login. (Or SkyrimDownloaded downloads it, in "Download here" mode.)
+2. Once everything has arrived, the **SkyrimDownloaded add-on** inside MO2 installs it all by itself:
+   - **in your list's order**, even if MO2 finished the downloads in a different order
+   - **showing the options window for mods that have installer options (FOMOD)**, so you choose those as you go
+   - **skipping mods that are already installed**, and installing a mod's extra files as separate mods (no merge or replace questions)
+3. The mods then go to the bottom of MO2's left pane **in your list's order, under your list's separators**, and are switched on.
 
-The add-on then:
-- **installs every downloaded mod in your list's order.** Each mod's installer windows (FOMOD) still appear, so you choose those options as usual.
-- **skips mods that are already installed.**
-- **installs a mod with several files as separate mods**, e.g. "Pretty Textures – USSEP Patch", so nothing asks to merge or replace.
-- **moves the mods to the bottom of the left pane in your list's order and switches them on.**
+**Separators:** a line in your list starting with `##` becomes an MO2 separator, and the mods below it go under it:
 
-Run **Sort with LOOT** afterwards to sort the plugins. Command line: `python -m skyrimdl mo2-addon`.
+```text
+## 01 — EXTERNAL TOOLS AND CLEAN BASE
+https://www.nexusmods.com/skyrimspecialedition/mods/...
+## 02 — ENGINE, SKSE LIBRARIES, BUG FIXES
+https://www.nexusmods.com/skyrimspecialedition/mods/...
+```
+
+Missing separators are created. Stage 4 shows the same headings, and **Share…** keeps them.
+
+**The first time:** MO2 needs the add-on. **Start downloads** offers to add it (or use **Add installer to MO2**), and MO2 has to be restarted once after that. Keep MO2 open while it downloads and installs.
+
+**Good to know:**
+- If some downloads haven't arrived after 10 minutes, the add-on asks whether to install the ones that have.
+- You can switch automatic installing off in MO2: **Settings → Plugins → SkyrimDownloaded Installer → auto_install**.
+- In MO2, **Tools** (the puzzle-piece button) → **SkyrimDownloaded: install downloaded mods** runs it by hand.
+- To skip the name question for mods without an installer, set **Settings → Plugins → Simple Installer → silent** to true in MO2.
+- Run **Sort with LOOT** afterwards to sort the plugins.
+
+Command line: `python -m skyrimdl mo2-addon` adds the add-on.
 
 ## Starting from a Nexus Collection
 

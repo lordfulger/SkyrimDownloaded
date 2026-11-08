@@ -161,6 +161,8 @@ class Theme:
                 widget.tag_configure("error", foreground=c["error"])
                 widget.tag_configure("off", foreground=c["off"])
                 widget.tag_configure("done", foreground=c["done"])
+                widget.tag_configure("section", foreground=c["accent"],
+                                     font=("TkDefaultFont", 10, "bold"))
         except tk.TclError:
             pass
         for child in widget.winfo_children():

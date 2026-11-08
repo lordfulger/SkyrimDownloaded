@@ -4,7 +4,7 @@ name: Build
 # To publish a release with the .exe attached, either push a version tag (e.g. v1.6.0), or on
 # GitHub: Actions > Build > Run workflow, pick the branch, tick "Publish a release" (the tag
 # v<version in skyrimdl/__init__.py> is made for you).
-# If SignPath is set up (see SIGNING.md), the .exe is code-signed first.
+# If code signing is set up (SignPath or Azure Trusted Signing, see SIGNING.md), the .exe is signed first.
 
 on:
   push:
@@ -85,6 +85,31 @@ jobs:
           if [ -z "$signed" ]; then echo "::error::SignPath returned no SkyrimDownloaded.exe"; exit 1; fi
           cp "$signed" dist/SkyrimDownloaded.exe
 
+      # --- Or code signing with Azure Trusted Signing (skipped until it's set up, see SIGNING.md) ---
+      - name: Sign with Azure Trusted Signing
+        if: ${{ vars.AZURE_SIGNING_ACCOUNT != '' && vars.SIGNPATH_ORGANIZATION_ID == '' }}
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
+          files-folder: dist
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Check the signature
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' || vars.AZURE_SIGNING_ACCOUNT != '' }}
+        shell: pwsh
+        run: |
+          $sig = Get-AuthenticodeSignature dist/SkyrimDownloaded.exe
+          Write-Host "Signature: $($sig.Status) - $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') { Write-Error "The .exe isn't validly signed"; exit 1 }
+
       - uses: actions/upload-artifact@v4
         with:
           name: SkyrimDownloaded-windows
@@ -115,7 +140,7 @@ jobs:
             echo "::error::A release called $tag already exists. Bump the version in skyrimdl/__init__.py first."
             exit 1
           fi
-          signed="${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}"
+          signed="${{ vars.SIGNPATH_ORGANIZATION_ID != '' || vars.AZURE_SIGNING_ACCOUNT != '' }}"
           {
             echo "**Download:** \`SkyrimDownloaded.exe\` below - no install or Python needed. Needs a Nexus Mods Premium account."
             echo

@@ -206,7 +206,11 @@ The saved data is in `%LOCALAPPDATA%\SkyrimDownloaded\nexus-cache.json`.
 
 ## New versions
 
-Once a day the app checks GitHub for a newer release. If there is one, an **⬆ Update to …** button appears in the bottom bar and opens the download page. **Help ▾ → Check for a new version** checks right away.
+Once a day the app checks GitHub for a newer release. If there is one, an **⬆ Update to …** button appears in the bottom bar. Press it and the app updates itself:
+1. It downloads the new `SkyrimDownloaded.exe` and checks it against the checksum GitHub publishes for the release.
+2. It closes, swaps the new version in, and reopens. Your work in progress is saved and comes back.
+
+If the folder the app is in can't be written to, the new version goes to `%LOCALAPPDATA%\SkyrimDownloaded\app` and starts from there. **Help ▾ → Check for a new version / update** checks right away. When running from source, the button opens the release page instead.
 
 ## If something goes wrong
 
@@ -353,6 +357,20 @@ Releases are published by the **Build** workflow. It builds `SkyrimDownloaded.ex
   ```bash
   git push origin v1.6.0
   ```
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org) (once the project is accepted; see [SIGNING.md](SIGNING.md)).
+
+- **What is signed:** only `SkyrimDownloaded.exe`, built from this repository's source by the GitHub Actions **Build** workflow on GitHub's own Windows machines. Nothing built anywhere else is signed.
+- **Committers and reviewers:** [lordfulger](https://github.com/lordfulger), who writes and reviews the code in this repository.
+- **Approvers:** [lordfulger](https://github.com/lordfulger) approves every signing request.
+- **Privacy:** SkyrimDownloaded sends nothing anywhere except the services you use it with:
+  - Nexus Mods, with your own API key
+  - GitHub, once a day, to check for a new version
+  - the download servers of the mods you choose
+
+  It doesn't collect data about you, and your API key never leaves your PC except to go to Nexus Mods.
 
 ## License
 

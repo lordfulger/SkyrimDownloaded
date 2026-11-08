@@ -119,7 +119,8 @@ class Handler(BaseHTTPRequestHandler):
             tag = state.get("latest_tag", "v9.9.9")
             return self._json(200, {"tag_name": tag, "html_url": f"https://example.com/{tag}",
                                     "draft": False, "prerelease": False,
-                                    "assets": [{"name": "SkyrimDownloaded.exe",
+                                    "assets": [{"name": "SkyrimDownloaded.exe", "size": 1234,
+                                                "digest": "sha256:" + "ab" * 32,
                                                 "browser_download_url": f"https://example.com/{tag}.exe"}]})
         if path.startswith("/cdn/"):
             return self._cdn(int(path.split("/")[2]))

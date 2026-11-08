@@ -77,7 +77,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         help_menu = tk.Menu(help_btn, tearoff=False)
         help_menu.add_command(label="Copy debug info", command=self.copy_debug_info)
         help_menu.add_command(label="Open log folder", command=self.open_log_folder)
-        help_menu.add_command(label="Check for a new version", command=lambda: self.check_app_update(force=True))
+        help_menu.add_command(label="Check for a new version / update", command=lambda: self.check_app_update(force=True))
         help_menu.add_separator()
         help_menu.add_command(label="Read the guide (README)",
                               command=lambda: webbrowser.open("https://github.com/lordfulger/SkyrimDownloaded#readme"))
@@ -370,12 +370,56 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
             return
         log.info("New version available: %s", found.version)
         self.update_btn.configure(text=f"\u2b06 Update to {found.version}",
-                                  command=lambda: webbrowser.open(found.page))
+                                  command=lambda: self.update_app(found))
         self.update_btn.pack(side="right", padx=(0, 8))
         if force:
-            if messagebox.askyesno("SkyrimDownloaded", f"Version {found.version} is out (you have "
-                                   f"{__version__}). Open the download page?", parent=self._parent()):
+            self.update_app(found)
+
+    def update_app(self, found) -> None:
+        """Download the new version, then close, swap it in and reopen."""
+        exe = appupdate.running_exe()
+        if exe is None or not found.exe_url or sys.platform != "win32":
+            if messagebox.askyesno("Update", f"Version {found.version} is out (you have {__version__}). "
+                                   "Open the download page?", parent=self._parent()):
                 webbrowser.open(found.page)
+            return
+        if self.busy:
+            messagebox.showinfo("Update", "Wait for the current downloads or lookups to finish first.",
+                                parent=self._parent())
+            return
+        target = appupdate.update_target(exe)
+        where = "" if target == exe else (
+            f"\n\nThe folder it's in can't be written to, so the new version goes to {target.parent} "
+            "and starts from there.")
+        if not messagebox.askyesno(
+                "Update", f"Update to version {found.version}?\n\nIt downloads, then SkyrimDownloaded "
+                f"closes and reopens on the new version. Your work is saved and comes back.{where}",
+                parent=self._parent()):
+            return
+        self.update_btn.configure(state="disabled")
+
+        def progress(done, total):
+            if total:
+                self.events.put(("status", f"Downloading version {found.version}: "
+                                           f"{100 * done // max(total, 1)}%"))
+
+        def work():
+            path = appupdate.download_update(found, target.parent, progress=progress)
+            self.events.put(("update-ready", (path, target)))
+        self._background(work)
+
+    def _update_ready(self, path, target) -> None:
+        log.info("Update downloaded to %s; swapping into %s", path, target)
+        self._save_settings()
+        self.save_session(now=True, wait=True)
+        try:
+            appupdate.start_swap(path, target, os.getpid())
+        except OSError as err:
+            messagebox.showerror("Update", f"Couldn't start the update: {err}", parent=self._parent())
+            self.update_btn.configure(state="normal")
+            return
+        self.cancel.set()
+        self.root.destroy()
 
     def add_mo2_addon(self) -> None:
         """Put the SkyrimDownloaded add-on in MO2's plugins folder."""
@@ -539,7 +583,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                 "clipboard-login": self._clipboard_login_done, "updates": self._updates_done,
                 "compat": self._compat_done, "games": self._games_found, "found": self._apply_found,
                 "requirements": self._requirements_done, "finished": self._finished,
-                "app-update": self._app_update_found, "collection": self._collection_loaded,
+                "app-update": self._app_update_found, "update-ready": self._update_ready, "collection": self._collection_loaded,
             }.get(kind)
             if handler is None:
                 log.warning("Unknown event %s", kind)

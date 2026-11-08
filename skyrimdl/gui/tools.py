@@ -82,7 +82,7 @@ class ToolsMixin:
             return
         try:
             import subprocess
-            subprocess.Popen(args, close_fds=True)
+            subprocess.Popen(args, close_fds=True, env=appupdate.clean_env())
         except OSError as err:
             messagebox.showerror("LOOT", f"Couldn't start LOOT: {err}", parent=self._parent())
             return

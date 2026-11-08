@@ -42,6 +42,15 @@ class AppUpdateTests(unittest.TestCase):
         self.assertIsNone(appupdate.running_exe())                # tests run from source
         self.assertIn('copy /Y "%NEW%" "%OLD%"', appupdate.SWAP_SCRIPT)
 
+    def test_programs_start_without_the_exe_s_own_settings(self):
+        import os
+        from unittest import mock
+        fake = {"PATH": "x", "_PYI_APPLICATION_HOME_DIR": "C:/Temp/_MEI1", "_MEIPASS2": "C:/Temp/_MEI1",
+                "_PYI_PARENT_PROCESS_LEVEL": "1", "TCL_LIBRARY": "C:/Temp/_MEI1/tcl"}
+        with mock.patch.dict(os.environ, fake, clear=True):
+            env = appupdate.clean_env()
+        self.assertEqual(env, {"PATH": "x", "PYINSTALLER_RESET_ENVIRONMENT": "1"})
+
     def test_offline_says_why(self):
         with self.assertRaises(appupdate.CheckFailed):
             appupdate.check("http://127.0.0.1:1/nope", timeout=1, fallback=False)

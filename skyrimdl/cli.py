@@ -364,7 +364,8 @@ def cmd_loot(args, settings: Settings) -> int:
         _out(str(err))
         return 1
     import subprocess
-    subprocess.Popen(cmd, close_fds=True)
+    from .appupdate import clean_env
+    subprocess.Popen(cmd, close_fds=True, env=clean_env())
     _out("Opened LOOT: press Sort Plugins, then Apply.")
     return 0
 

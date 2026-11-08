@@ -111,7 +111,8 @@ class Target:
         if wait > 0:
             time.sleep(wait)
         try:
-            kwargs = {"close_fds": True, "stdin": subprocess.DEVNULL,
+            from ..appupdate import clean_env
+            kwargs = {"close_fds": True, "env": clean_env(), "stdin": subprocess.DEVNULL,
                       "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
             if IS_WINDOWS:
                 kwargs["creationflags"] = 0x00000008  # DETACHED_PROCESS

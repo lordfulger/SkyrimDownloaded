@@ -86,6 +86,21 @@ def check(url: str = LATEST_URL, current: str = __version__, timeout: float = 10
 
 # -- updating the .exe in place ------------------------------------------------------
 
+def clean_env() -> dict:
+    """Environment for programs this app starts, without the packed .exe's own settings.
+
+    The .exe unpacks itself to a temporary folder and notes it in environment variables;
+    a program started with those - above all a new SkyrimDownloaded.exe after an update -
+    would look for its files in that folder, which is gone once this app closes
+    ("Failed to load Python DLL ... python312.dll").
+    """
+    import os
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("_PYI_", "_MEIPASS")) and k not in ("TCL_LIBRARY", "TK_LIBRARY")}
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"  # tells a PyInstaller program it's started fresh
+    return env
+
+
 def running_exe() -> Path | None:
     """The .exe this is running from (None when running from source)."""
     return Path(sys.executable) if getattr(sys, "frozen", False) else None
@@ -168,4 +183,5 @@ def start_swap(new_exe: Path, target: Path, pid: int, *, start_after: bool = Tru
     args = ["cmd.exe", "/c", str(script), str(new_exe), str(target), str(pid)]
     if not start_after:
         args.append("nostart")
-    return subprocess.Popen(args, close_fds=True, creationflags=flags if sys.platform == "win32" else 0)
+    return subprocess.Popen(args, close_fds=True, env=clean_env(),
+                            creationflags=flags if sys.platform == "win32" else 0)

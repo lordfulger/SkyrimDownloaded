@@ -1,7 +1,13 @@
 name: Build
 
+# Every push: run the tests and build SkyrimDownloaded.exe (a download under Artifacts).
+# Pushing a version tag (e.g. v1.6.0) also publishes a GitHub release with the .exe attached.
+# If SignPath is set up (see SIGNING.md), the .exe is code-signed first.
+
 on:
   push:
+    branches: ["**"]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -28,13 +34,81 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Tag matches the app's version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          app=$(python -c "import skyrimdl; print(skyrimdl.__version__)")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$app" != "$tag" ]; then
+            echo "::error::Tag v$tag doesn't match the version in skyrimdl/__init__.py ($app)."
+            exit 1
+          fi
       - name: Build SkyrimDownloaded.exe
         run: |
           python -m pip install pyinstaller
           python -m PyInstaller --onefile --windowed --name SkyrimDownloaded run_skyrimdl.py
       - name: Check it starts
         run: python -c "import skyrimdl.gui, skyrimdl.cli; print('ok')"
+
+      # --- Code signing with SignPath (skipped until it's set up, see SIGNING.md) ---
+      - name: Upload the unsigned .exe for signing
+        id: unsigned
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkyrimDownloaded-unsigned
+          path: dist/SkyrimDownloaded.exe
+      - name: Sign with SignPath
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+      - name: Use the signed .exe
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        shell: bash
+        run: |
+          signed=$(find signed -iname 'SkyrimDownloaded.exe' | head -n 1)
+          if [ -z "$signed" ]; then echo "::error::SignPath returned no SkyrimDownloaded.exe"; exit 1; fi
+          cp "$signed" dist/SkyrimDownloaded.exe
+
       - uses: actions/upload-artifact@v4
         with:
           name: SkyrimDownloaded-windows
           path: dist/SkyrimDownloaded.exe
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: exe
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: SkyrimDownloaded-windows
+          path: dist
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          signed="${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}"
+          {
+            echo "**Download:** \`SkyrimDownloaded.exe\` below - no install or Python needed. Needs a Nexus Mods Premium account."
+            echo
+            if [ "$signed" != "true" ]; then
+              echo "Windows may say *\"Windows protected your PC\"* the first time: click **More info**, then **Run anyway**. The app isn't code-signed yet."
+              echo
+            fi
+            echo "See the [README](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/README.md) for how to use it."
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/SkyrimDownloaded.exe \
+            --title "SkyrimDownloaded $GITHUB_REF_NAME" \
+            --notes-file notes.md --generate-notes

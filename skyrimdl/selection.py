@@ -193,6 +193,9 @@ def choose(entry: ListEntry, files: list[FileOption], remembered: list[int] | No
     if wanted:
         found = [fid for fid in wanted if fid in by_id]
         missing = [fid for fid in wanted if fid not in by_id]
+        wrong_version = [fid for fid in found if by_id[fid].fit.hidden]
+        if found and not missing and wrong_version:
+            return Choice(found, True, "the list picked a file for another game version - check it")
         if found and not missing:
             return Choice(found, rule.mode == "ask", "file picked in the list")
         if found:

@@ -21,7 +21,7 @@ from . import finder
 from . import theme as theme_mod
 from .managers import ManagerError, make_target
 from .nexus import NexusClient, NexusError
-from . import compat, gameversion, session
+from . import compat, gameversion, loot, session, sharing, updates
 from .scrolling import AutoScroll, wheel_scroll
 from .text import bbcode_to_text
 from .engine import rechoose
@@ -185,6 +185,7 @@ class App:
         ttk.Button(bar, text="Save list\u2026", command=self.save_list).pack(side="left", padx=4)
         ttk.Button(bar, text="Save progress", command=self.save_progress).pack(side="left")
         ttk.Button(bar, text="Start over", command=self.start_over).pack(side="left", padx=4)
+        ttk.Button(bar, text="Share\u2026", command=self.share_list).pack(side="left")
         self.list_label = tk.StringVar(value="(type or paste links below)")
         ttk.Label(bar, textvariable=self.list_label).pack(side="left", padx=8)
         self.lookup_btn = ttk.Button(bar, text="Look up mods \u25B6", command=self.lookup)
@@ -217,7 +218,9 @@ class App:
         self.compat_btn = ttk.Button(tools, text="Check compatibility",
                                      command=lambda: self.check_compatibility(auto=False))
         self.compat_btn.pack(side="left", padx=4)
-        ttk.Button(tools, text="Open mod page", command=self.open_page).pack(side="left")
+        self.updates_btn = ttk.Button(tools, text="Check for updates", command=self.check_for_updates)
+        self.updates_btn.pack(side="left")
+        ttk.Button(tools, text="Open mod page", command=self.open_page).pack(side="left", padx=4)
         self.old_var = tk.BooleanVar(value=False)
         self.other_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(tools, text="Other game versions", variable=self.other_var,
@@ -273,6 +276,7 @@ class App:
         self.stop_btn.pack(side="right")
         self.start_btn = ttk.Button(go, text="Start downloads ▶", command=self.start)
         self.start_btn.pack(side="right", padx=4)
+        ttk.Button(go, text="Sort with LOOT", command=self.run_loot).pack(side="right", padx=(0, 8))
         self.status_var = tk.StringVar(value="Ready")
         ttk.Label(go, textvariable=self.status_var).pack(side="left", fill="x", expand=True, padx=8)
 
@@ -516,6 +520,7 @@ class App:
         self.lookup_btn.configure(state=state)
         self.find_btn.configure(state=state)
         self.compat_btn.configure(state=state)
+        self.updates_btn.configure(state=state)
         self.start_btn.configure(state=state)
         self.stop_btn.configure(state="normal" if busy else "disabled")
 
@@ -552,6 +557,8 @@ class App:
                     self._clipboard_login_done(*payload)
                 elif kind == "where":
                     self.where_var.set(payload)
+                elif kind == "updates":
+                    self._updates_done(*payload)
                 elif kind == "compat":
                     self._compat_done(*payload)
                 elif kind == "games":
@@ -823,6 +830,10 @@ class App:
         if not entries:
             messagebox.showinfo("SkyrimDownloaded", "No Nexus links or mod numbers in the list.", parent=self.root)
             return
+        warning = sharing.version_warning(sharing.list_meta(self.list_text.get("1.0", "end-1c")),
+                                          self._target_game())
+        if warning:
+            messagebox.showinfo("Shared list", warning, parent=self.root)
         others = sorted({e.game for e in entries if e.game != self.settings.game})
         if others and not messagebox.askyesno(
                 "Other games", "Some links are for other games (" + ", ".join(others)
@@ -1127,7 +1138,88 @@ class App:
             self.status_var.set(f"Paused with {len(left)} mod(s) still to choose - "
                                 "Choose options\u2026 carries on where you left off.")
         else:
-            self.check_compatibility(auto=True)
+            self.status_var.set("All options chosen. Press Check compatibility to see how your mods "
+                                "relate to each other, or Start downloads.")
+
+    # -- sharing, updates, LOOT ---------------------------------------------------
+
+    def share_list(self) -> None:
+        """Save the list with every choice locked in, for someone else to use."""
+        if not self.plans:
+            messagebox.showinfo("Share", "Look up the mods in your list first, so your choices can be "
+                                "saved with it.", parent=self.root)
+            return
+        left = [p for p in self.plans if p.needs_choice and not p.error]
+        if left and not messagebox.askyesno(
+                "Share", f"{len(left)} mod(s) still have options you haven't chosen; their ticked files "
+                "will be used. Share anyway?", parent=self.root):
+            return
+        base = self.list_path.stem if self.list_path else "my-mods"
+        path = filedialog.asksaveasfilename(title="Share list", defaultextension=".txt",
+                                            initialfile=f"{base}-shared.txt",
+                                            filetypes=[("Text files", "*.txt")])
+        if not path:
+            return
+        Path(path).write_text(sharing.export_text(self.plans, self._target_game(), title=Path(path).stem),
+                              encoding="utf-8")
+        messagebox.showinfo("Share", f"Saved {path}.\n\nSend it to anyone with SkyrimDownloaded: opening "
+                            "it and pressing Look up mods gives them exactly the same files.", parent=self.root)
+
+    def check_for_updates(self) -> None:
+        if not self.plans:
+            messagebox.showinfo("Updates", "Look up the mods in your list first.", parent=self.root)
+            return
+        if self.client is None:
+            messagebox.showinfo("Updates", "Log in first.", parent=self.root)
+            return
+        client, plans, target = self.client, list(self.plans), self._target_game()
+        self.status_var.set("Checking Nexus for newer files…")
+
+        def work():
+            found, errors = updates.check_updates(
+                client, plans, target,
+                progress=lambda d, t: self.events.put(("status", f"Checked {d} of {t} mods for updates")))
+            self.events.put(("updates", (found, errors)))
+        self._background(work)
+
+    def _updates_done(self, found, errors) -> None:
+        self._fill_tree()
+        if not found:
+            msg = "Everything you picked is up to date."
+            if errors:
+                msg += "\n\nCouldn't check:\n" + "\n".join(errors[:10])
+            self.status_var.set("No updates.")
+            messagebox.showinfo("Updates", msg, parent=self.root)
+            return
+        self.status_var.set(f"{len(found)} update(s) found.")
+        dlg = UpdatesDialog(self.root, found)
+        dlg.wait_window()
+        if dlg.chosen:
+            n = updates.apply(dlg.chosen)
+            self._fill_tree()
+            self.status_var.set(f"Switched {n} file(s) to the newer version - Start downloads to get them.")
+
+    def run_loot(self) -> None:
+        manager = self.manager_var.get()
+        try:
+            target = self._target()
+            if manager == "mo2":
+                inst = target.instance_dir
+                args = loot.command("mo2", self.settings.game, mo2_exe=target.exe(), instance_dir=inst,
+                                    instance_name=inst.name if inst else None, portable=target.is_portable)
+            else:
+                args = loot.command("vortex", self.settings.game)
+        except ManagerError as err:
+            messagebox.showinfo("LOOT", str(err), parent=self.root)
+            return
+        try:
+            import subprocess
+            subprocess.Popen(args, close_fds=True)
+        except OSError as err:
+            messagebox.showerror("LOOT", f"Couldn't start LOOT: {err}", parent=self.root)
+            return
+        how = "through Mod Organizer 2" if manager == "mo2" else "on its own"
+        self.status_var.set(f"Opened LOOT {how}: press Sort Plugins, then Apply.")
 
     # -- compatibility ----------------------------------------------------------
 
@@ -1508,6 +1600,59 @@ class ChoiceDialog(tk.Toplevel):
             self.commit()
         self.autoscroll.stop()
         self.grab_release()
+        self.destroy()
+
+
+class UpdatesDialog(tk.Toplevel):
+    """Newer files found: tick which ones to switch to."""
+
+    def __init__(self, master, found: list):
+        super().__init__(master)
+        self.chosen: list = []
+        self.title("Updates")
+        self.geometry("820x480")
+        self.transient(master)
+        self.grab_set()
+        newer = sum(1 for u in found if u.new is not None)
+        gone = len(found) - newer
+        head = ", ".join(x for x in (f"{newer} newer file(s) on Nexus" if newer else "",
+                                     f"{gone} of your files removed" if gone else "") if x)
+        ttk.Label(self, text=head, style="Title.TLabel").pack(
+            anchor="w", padx=12, pady=(12, 0))
+        ttk.Label(self, text="Tick the ones to switch to; Start downloads then gets them. Files with no "
+                             "replacement are listed so you can check the mod's page.",
+                  style="Muted.TLabel", wraplength=780).pack(anchor="w", padx=12)
+        body = ttk.Frame(self)
+        body.pack(fill="both", expand=True, padx=12, pady=8)
+        canvas = tk.Canvas(body, highlightthickness=0, yscrollincrement=18)
+        sb = ttk.Scrollbar(body, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        self.vars = []
+        for u in found:
+            if u.new is not None:
+                var = tk.BooleanVar(value=True)
+                ttk.Checkbutton(inner, text=u.label, variable=var).pack(anchor="w", pady=1)
+                self.vars.append((var, u))
+            else:
+                ttk.Label(inner, text="⚠ " + u.label, style="Warn.TLabel").pack(anchor="w", pady=1)
+        wheel_scroll(canvas, inner)
+        AutoScroll(canvas, also=tuple(inner.winfo_children()))
+        btns = ttk.Frame(self)
+        btns.pack(fill="x", padx=12, pady=(0, 12))
+        ttk.Button(btns, text="Close", command=self.destroy).pack(side="right")
+        if self.vars:
+            ttk.Button(btns, text="Use the newer files", style="Accent.TButton",
+                       command=self._use).pack(side="right", padx=6)
+        if getattr(master, "_theme", None):
+            master._theme.paint(self)
+
+    def _use(self) -> None:
+        self.chosen = [u for var, u in self.vars if var.get()]
         self.destroy()
 
 

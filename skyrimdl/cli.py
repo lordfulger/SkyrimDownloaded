@@ -14,7 +14,7 @@ from .config import Settings, choices_path, load_choices, save_choices
 from .engine import (DONE, missing_requirements, FAILED, SENT, SKIPPED, STOPPED, WORKING, Job, ModPlan, Runner,
                      jobs_for, resolve, summary)
 from .links import parse_list
-from . import compat, finder
+from . import compat, finder, loot, sharing, updates
 from .managers import ManagerError, make_target
 from .nexus import AuthError, NexusClient, NexusError
 from .gameversion import PRESETS, STORES, find_games, mo2_game_path, version_text
@@ -277,6 +277,59 @@ def _compat_report(client, plans, args) -> None:
                     f.plan.selected.append(f.file_id)
 
 
+def cmd_updates(args, settings: Settings) -> int:
+    list_path = Path(args.list)
+    try:
+        text = list_path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError as err:
+        _out(f"Can't read the list: {err}")
+        return 1
+    entries, _ = parse_list(text, settings.game)
+    try:
+        client = NexusClient(args.key or settings.get_api_key())
+        client.validate()
+    except NexusError as err:
+        _out(f"Nexus login failed: {err}")
+        return 1
+    store = choices_path(list_path)
+    target = settings.game_target()
+    plans = resolve(client, entries, remembered=load_choices(store), target=target)
+    found, errors = updates.check_updates(client, plans, target)
+    for e in errors:
+        _out(f"  !! {e}")
+    if not found:
+        _out("Everything you picked is up to date.")
+        return 0
+    for u in found:
+        _out(("  -> " if u.new else "  !! ") + u.label)
+    if args.apply:
+        n = updates.apply(found)
+        save_choices(store, plans)
+        _out(f"Switched {n} file(s) to the newer version in {store.name}. Run the list again to download them.")
+    else:
+        _out("Add --apply to switch to the newer files.")
+    return 0
+
+
+def cmd_loot(args, settings: Settings) -> int:
+    _auto_fill(settings)
+    try:
+        target = make_target(settings.manager, settings.game, **settings.target_paths())
+        if settings.manager == "mo2":
+            inst = target.instance_dir
+            cmd = loot.command("mo2", settings.game, mo2_exe=target.exe(), instance_dir=inst,
+                               instance_name=inst.name if inst else None, portable=target.is_portable)
+        else:
+            cmd = loot.command("vortex", settings.game)
+    except ManagerError as err:
+        _out(str(err))
+        return 1
+    import subprocess
+    subprocess.Popen(cmd, close_fds=True)
+    _out("Opened LOOT: press Sort Plugins, then Apply.")
+    return 0
+
+
 def cmd_run(args, settings: Settings) -> int:
     _apply_overrides(args, settings)
     list_path = Path(args.list)
@@ -291,6 +344,9 @@ def cmd_run(args, settings: Settings) -> int:
     if not entries:
         _out("No Nexus links or mod numbers found in the list.")
         return 1
+    warning = sharing.version_warning(sharing.list_meta(text), settings.game_target())
+    if warning:
+        _out("Note: " + warning)
     other_games = sorted({e.game for e in entries if e.game != settings.game})
     if other_games:
         _out(f"Note: some links are for other games ({', '.join(other_games)}); "
@@ -342,9 +398,14 @@ def cmd_run(args, settings: Settings) -> int:
                 else:
                     _out("   That was the last one: keeping the ticked files.")
                     plan.needs_choice = False
-    if not args.no_compat:
+    if args.compat:
         _compat_report(client, plans, args)
     save_choices(store, plans)
+
+    if args.export:
+        Path(args.export).write_text(
+            sharing.export_text(plans, settings.game_target(), title=Path(args.export).stem), encoding="utf-8")
+        _out(f"Saved a shareable copy with every choice locked in: {args.export}")
 
     jobs = jobs_for(plans)
     total = sum(j.option.approx_bytes or 0 for j in jobs)
@@ -394,6 +455,13 @@ def build_parser() -> argparse.ArgumentParser:
     login = sub.add_parser("login", help="save your Nexus API key")
     login.add_argument("--key", help="the key (otherwise you're asked for it)")
 
+    upd = sub.add_parser("updates", help="check the mods in a list for newer files")
+    upd.add_argument("list", help="the mod list (your saved choices are used)")
+    upd.add_argument("--apply", action="store_true", help="switch your saved choices to the newer files")
+    upd.add_argument("--key", help="Nexus API key for this run (otherwise the saved one)")
+
+    sub.add_parser("loot", help="open LOOT to sort the load order (through MO2 for MO2 setups)")
+
     detect = sub.add_parser("detect", help="find MO2 and Vortex on this PC")
     detect.add_argument("--deep", action="store_true",
                         help="also search your drives (finds portable / Wabbajack installs)")
@@ -431,8 +499,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--dry-run", action="store_true", help="look everything up, download nothing")
     run.add_argument("--add-requirements", action="store_true",
                      help="add missing requirements to the list without asking")
-    run.add_argument("--no-compat", action="store_true",
-                     help="don't check how the mods in the list relate to each other")
+    run.add_argument("--compat", action="store_true",
+                     help="also check how the mods in the list relate to each other "
+                          "(requirements, patches, conflicts)")
+    run.add_argument("--export", metavar="FILE",
+                     help="also save a shareable copy of the list with every choice locked in")
     run.add_argument("--no-requirements", action="store_true",
                      help="don't check mods' requirements")
     return p
@@ -445,7 +516,8 @@ def main(argv: list[str] | None = None) -> int:
         from .gui import run_gui
         return run_gui(settings)
     try:
-        return {"login": cmd_login, "detect": cmd_detect, "run": cmd_run}[args.command](args, settings)
+        return {"login": cmd_login, "detect": cmd_detect, "run": cmd_run, "updates": cmd_updates,
+                "loot": cmd_loot}[args.command](args, settings)
     except AuthError as err:
         _out(str(err))
         return 1

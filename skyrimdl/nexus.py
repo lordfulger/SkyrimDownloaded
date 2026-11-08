@@ -211,6 +211,10 @@ class NexusClient:
                 reason = getattr(err, "reason", err)
                 raise NexusError(f"Can't reach Nexus Mods: {reason}") from None
 
+    def _forget(self, path: str) -> None:
+        with self._lock:
+            self._cache.pop(self.base_url + path, None)
+
     # -- endpoints --------------------------------------------------------
 
     def validate(self) -> Account:
@@ -228,13 +232,23 @@ class NexusClient:
     def account(self) -> Account:
         return self._account or self.validate()
 
-    def mod(self, game: str, mod_id: int) -> ModInfo:
-        data = self._get(f"/games/{game}/mods/{int(mod_id)}.json")
-        return ModInfo.from_api(game, data)
+    def mod(self, game: str, mod_id: int, *, fresh: bool = False) -> ModInfo:
+        path = f"/games/{game}/mods/{int(mod_id)}.json"
+        if fresh:
+            self._forget(path)
+        return ModInfo.from_api(game, self._get(path))
 
     def files(self, game: str, mod_id: int) -> list[dict]:
-        data = self._get(f"/games/{game}/mods/{int(mod_id)}/files.json")
-        return list((data or {}).get("files") or [])
+        return self.files_and_updates(game, mod_id)[0]
+
+    def files_and_updates(self, game: str, mod_id: int, *, fresh: bool = False) -> tuple[list[dict], list[dict]]:
+        """The Files tab, plus Nexus's record of which file replaced which
+        (``file_updates``: old_file_id -> new_file_id)."""
+        path = f"/games/{game}/mods/{int(mod_id)}/files.json"
+        if fresh:
+            self._forget(path)
+        data = self._get(path) or {}
+        return list(data.get("files") or []), list(data.get("file_updates") or [])
 
     def download_links(self, game: str, mod_id: int, file_id: int, *,
                        key: str | None = None, expires: int | None = None) -> list[str]:

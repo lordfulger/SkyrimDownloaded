@@ -28,7 +28,9 @@ Both need **Premium**. Nexus only gives tools download links for Premium account
 ## Setup (Windows)
 
 ### Option A: the .exe (no Python needed)
-Download `SkyrimDownloaded.exe` from the latest run of the **Build** workflow (the repo's *Actions* tab → *Build* → *Artifacts*) and run it.
+Download `SkyrimDownloaded.exe` from the [latest release](https://github.com/lordfulger/SkyrimDownloaded/releases/latest) and run it.
+
+Windows may say *"Windows protected your PC"* the first time. Click **More info**, then **Run anyway**: the app isn't code-signed yet (see [SIGNING.md](SIGNING.md)).
 
 ### Option B: run from source
 1. Install Python 3.10 or newer from [python.org](https://www.python.org/downloads/windows/). The installer includes Tk, which the window needs.
@@ -79,8 +81,9 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
    - The wheel, middle-click scrolling and Page Up/Down all scroll the list of files.
    - In the main list, tick or untick a file by clicking its box or double-clicking it. **Choose options…** opens the window again.
    - **Click a mod** to see its Nexus page in the panel on the right: author, version, last update, endorsements, downloads, summary and full description. The panel also shows its requirements (in your list or not) and its links with your other mods. Click a file to see that file's details.
-6. **Compatibility check:** once every mod's options are chosen, the tool checks how the mods in your list relate to each other (see below). It then offers to **review** the mods involved, with suggested patches already ticked. **Check compatibility** runs the check again any time.
+6. **Check compatibility** (optional, whenever you like) shows how the mods in your list relate to each other (see below). It then offers to **review** the mods involved, with suggested patches already ticked.
 7. **Start downloads.** For "Mod manager downloads", open MO2 or Vortex on your Skyrim setup first. If you stop part way, start again later and it carries on where it left off.
+8. **Sort with LOOT** once the mods are installed, to sort the load order (see below).
 
 ## Picking files for your Skyrim version
 
@@ -109,6 +112,33 @@ Many mods offer separate files for different versions of the game. SSE Engine Fi
 - **Changing the version later:** files are picked again right away. Mods where you'd already picked a file for the old version are highlighted for you to check.
 - **Command line:** `--game-version 1.6.1170` (or `any`) and `--store gog`. `detect` shows the Skyrim installs it finds.
 
+## Sharing your list
+
+**Share…** saves your list with every choice locked in: the exact files you picked, mods you left out, and the Skyrim version it was made for. Send that file to a friend. When they open it and press **Look up mods**, they get exactly the same files with no questions asked, which makes it the closest thing to your own collection.
+
+- **It's an ordinary mod list.** Each line pins the files with `| file=…`, so you can read and edit it too.
+- **Different Skyrim versions:** if the person has a different version than yours, they're told. Any pinned file that doesn't fit their version is flagged for them to choose again.
+- **Command line:** `python -m skyrimdl run my-mods.txt --dry-run --export shared.txt`
+
+## Checking for updates
+
+**Check for updates** asks Nexus again about every file you picked:
+
+| What Nexus shows | What the tool does |
+|---|---|
+| The author uploaded a newer version | It offers to switch to the newer file. Nexus links each old file to its replacement, so this is exact. |
+| The file moved to *Old versions* or was removed | It suggests the current file from the same section of the Files tab, if there is one. Otherwise it lists the file so you can check the mod's page. |
+
+Tick the ones you want, then **Start downloads** to get them. The command line has `python -m skyrimdl updates my-mods.txt`, and `--apply` switches your saved choices.
+
+## Sorting the load order (LOOT)
+
+**Sort with LOOT** opens [LOOT](https://loot.github.io); in LOOT, press **Sort Plugins**, then **Apply**.
+
+- **MO2:** LOOT runs *through* MO2, so it can see your mods. If LOOT is one of the instance's executables (MO2 usually adds it by itself), it's started by that name. Otherwise the tool finds `LOOT.exe` (installed, or in a Wabbajack list's tools folder) and runs it through MO2.
+- **Vortex:** Vortex sorts plugins itself (Plugins tab, **Sort now**). The button still opens LOOT on its own if you have it.
+- **Command line:** `python -m skyrimdl loot`
+
 ## Picking up where you left off
 
 Your work is saved as you go and when you close the app. Next time it opens, everything is back where you left it:
@@ -136,7 +166,7 @@ The check catches things a collection's author would normally have sorted out. F
 - **Review:** walks you through just the mods involved. Warnings ("may conflict with …", "needs …") are shown at the top, and suggested patches are marked with ★.
 - **Read it as a checklist, not a verdict.** Page text is read automatically, so a conflict is flagged as "possible" and is worth checking on the mod's page.
 - **Missing requirements** (mods your list needs but doesn't have) are still offered when you press **Look up mods**.
-- **Command line:** the report is printed after the options, and it offers to tick the suggested patches. `--no-compat` turns it off.
+- **Command line:** add `--compat` to print the report after the options. It offers to tick the suggested patches.
 
 ## Scrolling and resizing
 
@@ -210,7 +240,8 @@ Useful flags for `run`:
 | `--include-old` | Also offers old versions |
 | `--game-version 1.6.1170` / `--store gog` | Your game, so files for other versions are left out (`any` turns this off) |
 | `--show-other-versions` | Also offers files that look like they're for other game versions |
-| `--no-compat` | Skips the compatibility check |
+| `--compat` | Also checks how the mods in the list relate to each other |
+| `--export FILE` | Also saves a shareable copy of the list with every choice locked in |
 | `--add-requirements` / `--no-requirements` | Adds missing requirements without asking, or skips the requirements check |
 | `--no-install` | Vortex: only download, don't install |
 | `--downloads <folder>` | Uses a different downloads folder |
@@ -226,6 +257,24 @@ Run `python -m skyrimdl run --help` for everything.
 - **API limits:** Nexus allows a personal key roughly 2,500 requests a day (then 100 an hour). Looking up a mod costs about 3 requests, and a direct download 1 more. Once the daily allowance runs out, the hourly limit is very low. The remaining count is shown at the end of a command-line run.
 - **Removed or replaced files:** if a linked file was deleted (often because a newer version replaced it), the tool picks the current primary file and asks you to confirm.
 - **This uses the official Nexus API with your own key,** the same way MO2 and Vortex do. It downloads only what you could download yourself, and every download counts toward the mod author's download stats.
+
+## Releases
+
+Pushing a version tag publishes a release automatically. The Build workflow builds `SkyrimDownloaded.exe` (code-signed, once [SIGNING.md](SIGNING.md) is set up) and attaches it to a new release:
+
+```bash
+git tag v1.6.0
+```
+
+```bash
+git push origin v1.6.0
+```
+
+The tag has to match the version in `skyrimdl/__init__.py`.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
 
 ## For developers
 
@@ -251,5 +300,8 @@ skyrimdl/
   text.py        Nexus BBCode descriptions to plain text
   scrolling.py   middle-click and mouse-wheel scrolling
   session.py     save and restore the work in progress
+  sharing.py     export a list with every choice locked in
+  updates.py     newer files for the ones you picked
+  loot.py        open LOOT (through MO2 for MO2 setups)
   cli.py, gui.py command line and Tk window
 ```

@@ -136,7 +136,21 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(404, {"message": "No Mod Found"})
                 return self._json(200, MODS[mod_id])
             if parts[5:] == ["files.json"]:
-                return self._json(200, {"files": FILES.get(mod_id, []), "file_updates": []})
+                files, updates = FILES.get(mod_id, []), []
+                if state.get("new_upload") and mod_id == 1000:
+                    # The author uploaded 2K v2.1: the old 2K moves to old versions and Nexus links
+                    # old -> new; the patch file was deleted.
+                    files = [dict(f) for f in files if f["file_id"] != 203]
+                    for f in files:
+                        if f["file_id"] == 202:
+                            f.update(category_id=4, category_name="OLD_VERSION")
+                    files.append({"file_id": 205, "name": "Pretty Textures 2K", "version": "2.1",
+                                  "category_id": 1, "category_name": "MAIN", "is_primary": False,
+                                  "size_in_bytes": 120_000, "file_name": "Pretty Textures 2K-1000-2-1.7z",
+                                  "uploaded_timestamp": 1700000500, "description": "2K, looks better"})
+                    updates = [{"old_file_id": 202, "new_file_id": 205, "old_file_name": "a",
+                                "new_file_name": "b", "uploaded_timestamp": 1700000500}]
+                return self._json(200, {"files": files, "file_updates": updates})
             if len(parts) == 8 and parts[7] == "download_link.json":
                 if key != GOOD_KEY and "key=" not in self.path:
                     return self._json(403, {"message": "You don't have permission to get download "

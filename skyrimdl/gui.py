@@ -267,14 +267,14 @@ class App:
         go = ttk.Frame(outer)
         # Packed first at the bottom, so it never gets squeezed off a small window.
         go.pack(side="bottom", fill="x", before=outer.winfo_children()[0], **pad)
-        self.progress = ttk.Progressbar(go, mode="determinate")
-        self.progress.pack(side="left", fill="x", expand=True)
-        self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(go, textvariable=self.status_var, width=46).pack(side="left", padx=8)
+        self.progress = ttk.Progressbar(go, mode="determinate", length=280)
+        self.progress.pack(side="left")
         self.stop_btn = ttk.Button(go, text="Stop", command=self.stop, state="disabled")
         self.stop_btn.pack(side="right")
         self.start_btn = ttk.Button(go, text="Start downloads ▶", command=self.start)
         self.start_btn.pack(side="right", padx=4)
+        self.status_var = tk.StringVar(value="Ready")
+        ttk.Label(go, textvariable=self.status_var).pack(side="left", fill="x", expand=True, padx=8)
 
     def _manager_changed(self) -> None:
         for child in self.paths.winfo_children():

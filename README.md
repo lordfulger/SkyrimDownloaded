@@ -107,6 +107,19 @@ Many mods offer separate files for different versions of the game. SSE Engine Fi
 - **Changing the version later:** files are picked again right away. Mods where you'd already picked a file for the old version are highlighted for you to check.
 - **Command line:** `--game-version 1.6.1170` (or `any`) and `--store gog`. `detect` shows the Skyrim installs it finds.
 
+## Picking up where you left off
+
+Your work is saved as you go and when you close the app. Next time it opens, everything is back where you left it:
+- the mod list, including edits you haven't saved to a file
+- every looked-up mod, with its files and the options you picked
+- mods still waiting for a choice or skipped for later
+- the compatibility results
+- the view settings and the window size
+
+**Save progress** saves straight away if you want to be sure. **Start over** clears everything for a new list; a list you saved to a file stays on disk.
+
+The saved work is in `%APPDATA%\SkyrimDownloaded\session.json`. It holds what Nexus said when you last looked the mods up, so press **Look up mods** to refresh it if a while has passed. Your choices are kept.
+
 ## Compatibility check
 
 The check catches things a collection's author would normally have sorted out. For each mod in your list it looks at:
@@ -235,5 +248,6 @@ skyrimdl/
   compat.py      requirements, patches and conflicts between the mods in a list
   text.py        Nexus BBCode descriptions to plain text
   scrolling.py   middle-click and mouse-wheel scrolling
+  session.py     save and restore the work in progress
   cli.py, gui.py command line and Tk window
 ```

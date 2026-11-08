@@ -37,7 +37,7 @@ Windows may say *"Windows protected your PC"* the first time. Click **More info*
 2. Download this repo (green **Code** button → *Download ZIP*) and unzip it.
 3. Double-click **`SkyrimDownloaded.bat`**.
 
-No extra packages are needed: it uses only Python's standard library.
+No extra packages are needed: it uses only Python's standard library. To see mod pictures when running from source, also install Pillow (`py -m pip install pillow`); the `.exe` already includes it.
 
 ### Logging in to Nexus
 1. Press **Log in with Nexus**. Your browser opens Nexus's API key page (log in there if asked).
@@ -80,9 +80,16 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
    - **Leave this mod out** drops it from this download.
    - The wheel, middle-click scrolling and Page Up/Down all scroll the list of files.
    - In the main list, tick or untick a file by clicking its box or double-clicking it. **Choose options…** opens the window again.
-   - **Click a mod** to see its Nexus page in the panel on the right: author, version, last update, endorsements, downloads, summary and full description. The panel also shows its requirements (in your list or not) and its links with your other mods. Click a file to see that file's details.
+   - **Click a mod** to see its Nexus page in the panel on the right: its picture, author, version, last update, endorsements, downloads, summary and full description. The panel also shows its requirements (in your list or not) and its links with your other mods. Click a file to see that file's details.
+   - **Search** filters the list by mod name, author, your note or file name.
+   - **Bulk actions ▾** applies one change to every mod shown (all of them, or just the ones matching the search):
+     - tick all suggested patches
+     - leave out every optional file
+     - untick files for other game versions
+     - keep only the main files
+     - expand or collapse everything
 6. **Check compatibility** (optional, whenever you like) shows how the mods in your list relate to each other (see below). It then offers to **review** the mods involved, with suggested patches already ticked.
-7. **Start downloads.** For "Mod manager downloads", open MO2 or Vortex on your Skyrim setup first. If you stop part way, start again later and it carries on where it left off.
+7. **Start downloads.** For "Mod manager downloads", open MO2 or Vortex on your Skyrim setup first. When downloading here, each file shows its speed and time left, and the bottom bar shows the total. If you stop part way, start again later and it carries on where it left off.
 8. **Sort with LOOT** once the mods are installed, to sort the load order (see below).
 
 ## Picking files for your Skyrim version
@@ -149,6 +156,10 @@ Nexus allows a personal API key about 2,500 requests a day; after that, only abo
 - **You're warned first** if something would need more requests than you have left.
 
 The saved data is in `%LOCALAPPDATA%\SkyrimDownloaded\nexus-cache.json`.
+
+## New versions
+
+Once a day the app checks GitHub for a newer release. If there is one, an **⬆ Update to …** button appears in the bottom bar and opens the download page. **Help ▾ → Check for a new version** checks right away.
 
 ## If something goes wrong
 
@@ -321,6 +332,8 @@ skyrimdl/
   loot.py        open LOOT (through MO2 for MO2 setups)
   nexuscache.py  keep Nexus answers on disk to save API requests
   logs.py        the log file and "Copy debug info"
+  appupdate.py   is there a newer release on GitHub?
+  pictures.py    mod pictures for the info panel (Pillow; optional from source)
   gui/           the window, split by area (app.py ties it together)
   cli.py, gui.py command line and Tk window
 ```

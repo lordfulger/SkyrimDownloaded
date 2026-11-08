@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from __future__ import annotations
 
+import gc
 import os
 import queue
 import sys
@@ -18,19 +19,19 @@ from tkinter import filedialog, messagebox, ttk
 
 from .. import __version__
 from ..config import Settings, choices_path, load_choices, save_choices
-from ..engine import (DONE, missing_requirements, FAILED, SENT, SKIPPED, STOPPED, WORKING, Job, ModPlan, Runner,
+from ..engine import (QUEUED, DONE, missing_requirements, FAILED, SENT, SKIPPED, STOPPED, WORKING, Job, ModPlan, Runner,
                      jobs_for, resolve, summary)
 from ..links import parse_list
 from .. import finder
 from .. import theme as theme_mod
 from ..managers import ManagerError, make_target
 from ..nexus import NexusClient, NexusError
-from .. import compat, gameversion, logs, loot, nexuscache, session, sharing, updates
+from .. import appupdate, pictures, compat, gameversion, logs, loot, nexuscache, session, sharing, updates
 from ..logs import log
 from ..scrolling import AutoScroll, wheel_scroll
 from ..text import bbcode_to_text
 from ..engine import rechoose
-from ..selection import annotate, for_other_versions, human_size, visible_options
+from ..selection import annotate, for_other_versions, human_size, human_time, visible_options
 
 
 API_KEY_PAGE = "https://www.nexusmods.com/settings/api-keys"

@@ -18,7 +18,7 @@ from . import compat, finder, loot, sharing, updates
 from .managers import ManagerError, make_target
 from .nexus import AuthError, NexusClient, NexusError
 from .gameversion import PRESETS, STORES, find_games, mo2_game_path, version_text
-from .selection import for_other_versions, human_size, visible_options
+from .selection import for_other_versions, human_size, human_time, visible_options
 
 
 def _out(msg: str = "") -> None:
@@ -201,7 +201,9 @@ class _Printer:
                     return
                 self._last[id(job)] = now
                 total = f" of {human_size(job.total_bytes)}" if job.total_bytes else ""
-                _out(f"  ... {job.label}: {human_size(job.done_bytes)}{total}")
+                speed = (f" ({human_size(job.speed)}/s, {human_time(job.seconds_left)} left)"
+                         if job.speed else "")
+                _out(f"  ... {job.label}: {human_size(job.done_bytes)}{total}{speed}")
                 return
             icon = {DONE: "OK ", SENT: "-> ", SKIPPED: "== ", FAILED: "!! ", STOPPED: "-- "}.get(job.state, "   ")
             _out(f"  {icon}{job.label}: {job.note or job.state}")

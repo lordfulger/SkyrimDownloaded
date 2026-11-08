@@ -53,7 +53,7 @@ jobs:
           fi
       - name: Build SkyrimDownloaded.exe
         run: |
-          python -m pip install pyinstaller
+          python -m pip install pyinstaller pillow
           python -m PyInstaller --onefile --windowed --name SkyrimDownloaded run_skyrimdl.py
       - name: Check it starts
         run: python -c "import skyrimdl.gui, skyrimdl.cli; print('ok')"

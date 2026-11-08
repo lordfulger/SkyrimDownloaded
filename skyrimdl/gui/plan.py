@@ -7,13 +7,66 @@ from .dialogs import ChoiceDialog, CompatDialog, UpdatesDialog
 
 
 class PlanMixin:
+    def _matches(self, plan: ModPlan, query: str) -> bool:
+        if not query:
+            return True
+        text = " ".join([plan.title, plan.mod.author if plan.mod else "", plan.entry.note,
+                         str(plan.entry.mod_id)] + [o.name for o in plan.options]).lower()
+        return all(word in text for word in query.lower().split())
+
+    def _filter_changed(self) -> None:
+        if getattr(self, "_filter_job", None):
+            self.root.after_cancel(self._filter_job)
+        self._filter_job = self.root.after(250, self._fill_tree)  # wait for a pause in typing
+
+    def bulk(self, action: str) -> None:
+        """Apply one change to every mod shown (all of them, or the ones matching the search)."""
+        if action in ("expand", "collapse"):
+            for row in self._row_plan:
+                self.tree.item(row, open=action == "expand")
+            return
+        query = self.filter_var.get().strip()
+        targets = [p for p in self.plans if not p.error and not p.skipped and self._matches(p, query)]
+        suggestions = self.compat.suggestions() if self.compat else {}
+        if action == "patches" and not suggestions:
+            messagebox.showinfo("Bulk actions", "No suggested patches yet - press Check compatibility first.",
+                                parent=self._parent())
+            return
+        changed = 0
+        for plan in targets:
+            before = list(plan.selected)
+            if action == "patches":
+                for fid in suggestions.get(id(plan), {}):
+                    if fid not in plan.selected:
+                        plan.selected.append(fid)
+            elif action == "no-optional":
+                plan.selected = [f for f in plan.selected if (o := plan.option(f)) is None or o.category != 3]
+            elif action == "version":
+                plan.selected = [f for f in plan.selected if (o := plan.option(f)) is None or not o.fit.hidden]
+            elif action == "main-only":
+                mains = [f for f in plan.selected if (o := plan.option(f)) is not None and o.category == 1]
+                plan.selected = mains or plan.selected  # never leave a mod with nothing
+            if plan.selected != before:
+                changed += 1
+                plan.needs_choice = False
+                plan.reason = "your choice" if plan.selected else "nothing ticked - mod left out"
+        self._fill_tree()
+        where = f" (mods matching \u201c{query}\u201d)" if query else ""
+        self.status_var.set(f"Changed {changed} mod(s){where}.")
+
     def _fill_tree(self) -> None:
         self.save_session()
+        self._filter_job = None
         self.tree.delete(*self.tree.get_children())
         self._row_option.clear()
         self._row_plan.clear()
         self._job_rows.clear()
+        query = self.filter_var.get().strip() if hasattr(self, "filter_var") else ""
+        mods_shown = 0
         for plan in self.plans:
+            if not self._matches(plan, query):
+                continue
+            mods_shown += 1
             tags = ("error",) if plan.error else ("choose",) if plan.needs_choice else ()
             if plan.error:
                 status = plan.error
@@ -48,6 +101,11 @@ class PlanMixin:
                                              values=(ON, opt.category_label, opt.version, opt.size_text, ""))
                     self._row_option[child] = (plan, fid)
         self._update_plan_summary()
+        if hasattr(self, "filter_note"):
+            self.filter_note.set(f"showing {mods_shown} of {len(self.plans)} mods" if query else "")
+        if query:
+            for row in self._row_plan:
+                self.tree.item(row, open=True)
 
     def _update_plan_summary(self) -> None:
         jobs = jobs_for(self.plans)
@@ -100,6 +158,7 @@ class PlanMixin:
             self._render_info(self._row_plan[row], None)
 
     def _render_info(self, plan: ModPlan, opt) -> None:
+        self._info_plan = plan if opt is None else None  # a picture arriving late only goes to its own mod
         t = self.info
         c = self.theme.colors
         t.configure(state="normal")
@@ -127,6 +186,11 @@ class PlanMixin:
 
         mod = plan.mod
         raw = mod.raw if mod else {}
+        if mod and mod.picture_url and not opt:
+            t.mark_set("picture", "end-1c")
+            t.mark_gravity("picture", "left")
+            put("\n")
+            self._load_picture(plan, mod.picture_url)
         if opt:
             put(opt.name + "\n", "title")
             bits = [opt.category_label + " file"]
@@ -197,6 +261,36 @@ class PlanMixin:
                 put(desc + "\n")
         t.configure(state="disabled")
         t.yview_moveto(0)
+
+    def _load_picture(self, plan: ModPlan, url: str) -> None:
+        """Fetch the mod's picture in the background and put it at the top of the panel."""
+        cache = self.__dict__.setdefault("_pictures", {})
+        self._info_plan = plan
+        if url in cache:
+            self._show_picture(plan, url, cache[url])
+            return
+
+        def work():
+            self.events.put(("picture", (plan, url, pictures.fetch(url))))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _show_picture(self, plan: ModPlan, url: str, data) -> None:
+        cache = self.__dict__.setdefault("_pictures", {})
+        cache[url] = data
+        if getattr(self, "_info_plan", None) is not plan or not data:
+            return  # the panel moved on to another mod, or there's no picture
+        width = max(120, self.info.winfo_width() - 30)
+        photo = pictures.to_photo(data, width)
+        if photo is None:
+            return
+        self._info_photo = photo  # keep a reference, or Tk drops the image
+        t = self.info
+        try:
+            t.configure(state="normal")
+            t.image_create("picture", image=photo)
+            t.configure(state="disabled")
+        except tk.TclError:
+            pass
 
     def _focused_plan(self) -> ModPlan | None:
         row = self.tree.focus()

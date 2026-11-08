@@ -117,6 +117,18 @@ def human_size(n: int | None) -> str:
     return f"{value:.1f} GB"
 
 
+def human_time(seconds: float | None) -> str:
+    """12 s, 3 min, 1 h 5 min."""
+    if seconds is None:
+        return "?"
+    s = int(round(seconds))
+    if s < 60:
+        return f"{s} s"
+    if s < 3600:
+        return f"{max(1, s // 60)} min"
+    return f"{s // 3600} h {round((s % 3600) / 60)} min"
+
+
 def _plain(html: str) -> str:
     import html as html_mod
     import re

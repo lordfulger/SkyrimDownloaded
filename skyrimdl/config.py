@@ -39,6 +39,8 @@ class Settings:
     theme: str = "System"           # "System", "Light" or "Dark"
     game_version: str = ""          # e.g. "1.6.1170"; blank = don't filter by version
     game_store: str = "Steam"       # "Steam", "GOG" or "Game Pass"
+    check_app_updates: bool = True  # look for a newer SkyrimDownloaded once a day
+    last_update_check: float = 0.0
     api_key_protected: str = field(default="", repr=False)
 
     # -- the API key -------------------------------------------------------

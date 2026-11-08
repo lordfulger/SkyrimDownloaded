@@ -82,6 +82,8 @@ class DownloadMixin:
             if job.state == WORKING and job.total_bytes:
                 pct = 100 * job.done_bytes // max(job.total_bytes, 1)
                 text = f"downloading {pct}% of {human_size(job.total_bytes)}"
+                if job.speed:
+                    text += f" \u00b7 {human_size(job.speed)}/s \u00b7 {human_time(job.seconds_left)} left"
             else:
                 text = job.note or job.state
             self.tree.set(row, "status", text)
@@ -94,7 +96,13 @@ class DownloadMixin:
         done_bytes += sum(j.option.approx_bytes or 0 for j in self.jobs if j.state == SENT)
         self.progress.configure(value=done_bytes)
         finished = sum(1 for j in self.jobs if j.state in (DONE, SENT, SKIPPED, FAILED, STOPPED))
-        self.status_var.set(f"{finished} of {len(self.jobs)} files")
+        status = f"{finished} of {len(self.jobs)} files"
+        speed = sum(j.speed for j in self.jobs if j.state == WORKING)
+        if speed:
+            left = sum(max(0, (j.total_bytes or 0) - j.done_bytes) for j in self.jobs
+                       if j.state in (WORKING, QUEUED))
+            status += f" \u00b7 {human_size(speed)}/s \u00b7 about {human_time(left / speed)} left"
+        self.status_var.set(status)
 
     def _finished(self, jobs: list[Job]) -> None:
         counts = summary(jobs)

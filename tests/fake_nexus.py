@@ -115,8 +115,22 @@ class Handler(BaseHTTPRequestHandler):
         state = self.server.state
         path = urlsplit(self.path).path
         state["requests"].append(self.path)
+        if path.endswith("/releases/latest"):  # GitHub, for the update check
+            tag = state.get("latest_tag", "v9.9.9")
+            return self._json(200, {"tag_name": tag, "html_url": f"https://example.com/{tag}",
+                                    "draft": False, "prerelease": False,
+                                    "assets": [{"name": "SkyrimDownloaded.exe",
+                                                "browser_download_url": f"https://example.com/{tag}.exe"}]})
         if path.startswith("/cdn/"):
             return self._cdn(int(path.split("/")[2]))
+        if path.startswith("/pictures/"):
+            body = _picture()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         key = self.headers.get("apikey")
         if key not in (GOOD_KEY, FREE_KEY):
             return self._json(401, {"message": "Please provide a valid API Key"})
@@ -218,6 +232,28 @@ def _post(self):
 
 
 Handler.do_POST = _post
+
+
+def _picture() -> bytes:
+    """A small JPEG (with Pillow) or PNG picture for the info panel."""
+    try:
+        import io
+        from PIL import Image
+        img = Image.new("RGB", (640, 360), (70, 110, 160))
+        for x in range(0, 640, 40):
+            for y in range(0, 360, 40):
+                img.putpixel((x, y), (255, 255, 255))
+        buf = io.BytesIO()
+        img.save(buf, "JPEG")
+        return buf.getvalue()
+    except ImportError:
+        import struct
+        import zlib
+        raw = b"".join(b"\x00" + bytes((70, 110, 160)) * 64 for _ in range(36))
+        def chunk(kind, data):
+            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 36, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
 
 
 class FakeNexus:

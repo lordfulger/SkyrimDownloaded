@@ -45,6 +45,12 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.theme.apply()
         self._load_settings()
         root.report_callback_exception = self._callback_error
+        # Tk must only ever be touched from this thread. Python's cycle collector can run on
+        # any thread and would then delete Tk variables/images of closed dialogs from a
+        # background thread - which crashes or freezes Tk. So collect here, on a timer.
+        gc.disable()
+        self._gc_ticks = 0
+        root.after(4000, self.check_app_update)
         root.after(100, self._pump)
         root.protocol("WM_DELETE_WINDOW", self._close)
 
@@ -67,18 +73,20 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         ttk.Label(top_row, textvariable=self.requests_var, style="Muted.TLabel").pack(side="left", padx=6)
         self.theme_var = tk.StringVar(value=self.settings.theme if self.settings.theme in theme_mod.MODES
                                       else "System")
-        theme_box = ttk.Combobox(top_row, textvariable=self.theme_var, values=theme_mod.MODES,
-                                 state="readonly", width=8)
-        theme_box.pack(side="right")
         help_btn = ttk.Menubutton(top_row, text="Help \u25be")
         help_menu = tk.Menu(help_btn, tearoff=False)
         help_menu.add_command(label="Copy debug info", command=self.copy_debug_info)
         help_menu.add_command(label="Open log folder", command=self.open_log_folder)
+        help_menu.add_command(label="Check for a new version", command=lambda: self.check_app_update(force=True))
         help_menu.add_separator()
         help_menu.add_command(label="Read the guide (README)",
                               command=lambda: webbrowser.open("https://github.com/lordfulger/SkyrimDownloaded#readme"))
         help_btn["menu"] = help_menu
         help_btn.pack(side="right", padx=(8, 0))
+        theme_box = ttk.Combobox(top_row, textvariable=self.theme_var, values=theme_mod.MODES,
+                                 state="readonly", width=8)
+        theme_box.pack(side="right")
+
         theme_box.bind("<<ComboboxSelected>>", lambda e: self._theme_changed())
         ttk.Label(top_row, text="Theme:").pack(side="right", padx=(0, 4))
 
@@ -175,13 +183,14 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         ttk.Button(bar, text="Start over", command=self.start_over).pack(side="left", padx=4)
         ttk.Button(bar, text="Share\u2026", command=self.share_list).pack(side="left")
         self.list_label = tk.StringVar(value="(type or paste links below)")
-        ttk.Label(bar, textvariable=self.list_label).pack(side="left", padx=8)
+        list_label = ttk.Label(bar, textvariable=self.list_label, style="Muted.TLabel")
         self.lookup_btn = ttk.Button(bar, text="Look up mods \u25B6", command=self.lookup)
         self.lookup_btn.pack(side="right")
         self.fresh_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(bar, text="Forget last choices", variable=self.fresh_var).pack(side="right", padx=8)
         self.refresh_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(bar, text="Refresh from Nexus", variable=self.refresh_var).pack(side="right")
+        list_label.pack(side="left", padx=8, fill="x", expand=True)  # last: gets the space that's left
         box = ttk.Frame(lst)
         box.pack(fill="both", expand=True, padx=6, pady=(0, 6))
         self.list_text = tk.Text(box, height=5, wrap="none", undo=True, relief="flat",
@@ -219,6 +228,28 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                         command=self._fill_tree).pack(side="left", padx=4)
         self.plan_var = tk.StringVar()
         ttk.Label(tools, textvariable=self.plan_var).pack(side="right")
+
+        find = ttk.Frame(plan)
+        find.pack(fill="x", padx=6, pady=(0, 4))
+        ttk.Label(find, text="Search:").pack(side="left")
+        self.filter_var = tk.StringVar()
+        search = ttk.Entry(find, textvariable=self.filter_var, width=34)
+        search.pack(side="left", padx=6)
+        self.filter_var.trace_add("write", lambda *a: self._filter_changed())
+        ttk.Button(find, text="\u2715", width=3, command=lambda: self.filter_var.set("")).pack(side="left")
+        bulk_btn = ttk.Menubutton(find, text="Bulk actions \u25be")
+        bulk = tk.Menu(bulk_btn, tearoff=False)
+        bulk.add_command(label="Tick all suggested patches", command=lambda: self.bulk("patches"))
+        bulk.add_command(label="Leave out every optional file", command=lambda: self.bulk("no-optional"))
+        bulk.add_command(label="Untick files for other game versions", command=lambda: self.bulk("version"))
+        bulk.add_command(label="Keep only the main files", command=lambda: self.bulk("main-only"))
+        bulk.add_separator()
+        bulk.add_command(label="Expand all", command=lambda: self.bulk("expand"))
+        bulk.add_command(label="Collapse all", command=lambda: self.bulk("collapse"))
+        bulk_btn["menu"] = bulk
+        bulk_btn.pack(side="left", padx=8)
+        self.filter_note = tk.StringVar()
+        ttk.Label(find, textvariable=self.filter_note, style="Muted.TLabel").pack(side="left", padx=6)
 
         split = ttk.PanedWindow(plan, orient="horizontal")
         split.pack(fill="both", expand=True, padx=6, pady=(0, 6))
@@ -267,6 +298,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.start_btn = ttk.Button(go, text="Start downloads ▶", command=self.start)
         self.start_btn.pack(side="right", padx=4)
         ttk.Button(go, text="Sort with LOOT", command=self.run_loot).pack(side="right", padx=(0, 8))
+        self.update_btn = ttk.Button(go, text="", style="Accent.TButton")  # shown when there's a new version
         self.status_var = tk.StringVar(value="Ready")
         ttk.Label(go, textvariable=self.status_var).pack(side="left", fill="x", expand=True, padx=8)
 
@@ -302,10 +334,40 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
             self._pump_once()
         except Exception:
             log.exception("while updating the window")
+        self._gc_ticks = getattr(self, "_gc_ticks", 0) + 1
+        if self._gc_ticks % 15 == 0:  # about every 2 seconds, on the main thread
+            gc.collect(2 if self._gc_ticks % 150 == 0 else 0)
         try:
             self.root.after(150, self._pump)
         except tk.TclError:
             pass  # the window has been closed
+
+    def check_app_update(self, force: bool = False) -> None:
+        """Once a day, ask GitHub whether there's a newer SkyrimDownloaded."""
+        s = self.settings
+        if not force and (not s.check_app_updates or time.time() - s.last_update_check < 20 * 3600):
+            return
+        s.last_update_check = time.time()
+
+        def work():
+            found = appupdate.check()
+            self.events.put(("app-update", (found, force)))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _app_update_found(self, found, force: bool) -> None:
+        if found is None:
+            if force:
+                messagebox.showinfo("SkyrimDownloaded", f"You have the latest version ({__version__}).",
+                                    parent=self._parent())
+            return
+        log.info("New version available: %s", found.version)
+        self.update_btn.configure(text=f"\u2b06 Update to {found.version}",
+                                  command=lambda: webbrowser.open(found.page))
+        self.update_btn.pack(side="right", padx=(0, 8))
+        if force:
+            if messagebox.askyesno("SkyrimDownloaded", f"Version {found.version} is out (you have "
+                                   f"{__version__}). Open the download page?", parent=self._parent()):
+                webbrowser.open(found.page)
 
     def copy_debug_info(self) -> None:
         """Version, system, setup and the end of the log, ready to paste into a problem report."""
@@ -438,6 +500,8 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                                 + (f", {waiting} have options to choose" if waiting else "")
                                 + ". Checking requirements\u2026")
             self._check_requirements()
+        elif kind == "picture":
+            self._show_picture(*payload)
         elif kind == "where":
             self.where_var.set(payload)
         elif kind == "idle":
@@ -450,6 +514,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                 "clipboard-login": self._clipboard_login_done, "updates": self._updates_done,
                 "compat": self._compat_done, "games": self._games_found, "found": self._apply_found,
                 "requirements": self._requirements_done, "finished": self._finished,
+                "app-update": self._app_update_found,
             }.get(kind)
             if handler is None:
                 log.warning("Unknown event %s", kind)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -154,10 +155,30 @@ class Job:
     total_bytes: int | None = None
     note: str = ""
     path: Path | None = None
+    speed: float = 0.0            # bytes per second, smoothed
+    _last: tuple[float, int] | None = field(default=None, repr=False)
 
     @property
     def label(self) -> str:
         return f"{self.plan.title} - {self.option.name}"
+
+    def track(self, done: int, now: float | None = None) -> None:
+        """Update the download speed from the bytes done so far."""
+        now = time.monotonic() if now is None else now
+        if self._last is None:
+            self._last = (now, done)
+            return
+        t0, d0 = self._last
+        if now - t0 >= 0.5:
+            current = max(0.0, (done - d0) / (now - t0))
+            self.speed = current if not self.speed else 0.7 * self.speed + 0.3 * current
+            self._last = (now, done)
+
+    @property
+    def seconds_left(self) -> float | None:
+        if not self.speed or not self.total_bytes:
+            return None
+        return max(0.0, (self.total_bytes - self.done_bytes) / self.speed)
 
 
 EventFn = Callable[[Job], None]
@@ -257,6 +278,7 @@ class Runner:
 
             def progress(done: int, total: int | None) -> None:
                 job.done_bytes, job.total_bytes = done, total or job.total_bytes
+                job.track(done)
                 self._emit(job, WORKING, "")
 
             job.path = download(urls, dest, partial_dir=self.target.partial_dir(),

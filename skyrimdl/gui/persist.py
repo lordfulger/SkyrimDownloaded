@@ -41,6 +41,9 @@ class PersistMixin:
             setattr(s, key, var.get().strip())
         s.set_api_key(self.key_var.get())
         s.theme = self.theme_var.get()
+        if self.client is not None and self.client.rate.daily_remaining is not None:
+            s.rate = {"daily": self.client.rate.daily_remaining, "hourly": self.client.rate.hourly_remaining,
+                      "time": time.time()}
         s.game_version = gameversion.version_text(self._target_game().version)
         s.game_store = self.store_var.get()
         s.last_list = str(self.list_path) if self.list_path else ""

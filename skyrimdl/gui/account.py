@@ -49,6 +49,7 @@ class AccountMixin:
             return
         self._stop_clipboard_watch(f"Logged in as {acct.name} ({acct.kind})")
         self.client = client
+        self._remember_account(key, acct)
         self.key_var.set(key)
         self._save_settings()
         try:  # don't leave the key sitting on the clipboard
@@ -72,6 +73,7 @@ class AccountMixin:
         self.client = None
         self.key_var.set("")
         self.settings.set_api_key("")
+        self.settings.account = {}
         self.nexus_btn.configure(text="Log in with Nexus")
         self.account_var.set("Logged out")
         self._save_settings()
@@ -81,6 +83,31 @@ class AccountMixin:
         self.settings.theme = self.theme_var.get()
         self._save_settings()
 
+    def _remember_account(self, key: str, acct) -> None:
+        from dataclasses import asdict
+        self.settings.account = dict(asdict(acct), key=self.settings.key_fingerprint(key))
+
+    def _login_from_saved(self, key: str) -> bool:
+        """Log in from the last login, without asking Nexus (no request used).
+        The key is still checked by Nexus with the first real request."""
+        from ..nexus import Account
+        saved = dict(self.settings.account or {})
+        if not saved or saved.pop("key", None) != self.settings.key_fingerprint(key):
+            return False
+        try:
+            acct = Account(**saved)
+        except TypeError:
+            return False
+        client = NexusClient(key, disk_cache=nexuscache.shared())
+        client._account = acct
+        rate = self.settings.rate or {}
+        if rate and time.strftime("%Y-%m-%d", time.gmtime(rate.get("time", 0))) == time.strftime("%Y-%m-%d", time.gmtime()):
+            client.rate.daily_remaining = rate.get("daily")
+            client.rate.hourly_remaining = rate.get("hourly")
+        self.client = client
+        self.account_var.set(f"Logged in as {acct.name} ({acct.kind})")
+        return True
+
     def login(self, quiet: bool = False) -> None:
         key = self.key_var.get().strip()
         if not key:
@@ -89,11 +116,14 @@ class AccountMixin:
                                     "Paste your personal API key from Nexus Mods first.\n\n"
                                     "It's at the bottom of " + API_KEY_PAGE, parent=self._parent())
             return
+        if quiet and self._login_from_saved(key):
+            return  # no request to Nexus just for opening the app
 
         def work():
             try:
                 client = NexusClient(key, disk_cache=nexuscache.shared())
                 acct = client.validate()
+                self._remember_account(key, acct)
             except NexusError as err:
                 self.events.put(("account", f"Login failed: {err}"))
                 return

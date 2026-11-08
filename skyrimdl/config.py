@@ -40,10 +40,19 @@ class Settings:
     game_version: str = ""          # e.g. "1.6.1170"; blank = don't filter by version
     game_store: str = "Steam"       # "Steam", "GOG" or "Game Pass"
     check_app_updates: bool = True  # look for a newer SkyrimDownloaded once a day
+    # The last login, so opening the app doesn't need to ask Nexus again (saves a request).
+    account: dict = field(default_factory=dict)
+    # Requests left at the last answer from Nexus: {"daily", "hourly", "time"}.
+    rate: dict = field(default_factory=dict)
     last_update_check: float = 0.0
     api_key_protected: str = field(default="", repr=False)
 
     # -- the API key -------------------------------------------------------
+
+    def key_fingerprint(self, key: str | None = None) -> str:
+        import hashlib
+        key = self.get_api_key() if key is None else key
+        return hashlib.sha256(key.strip().encode()).hexdigest()[:16] if key.strip() else ""
 
     def get_api_key(self) -> str:
         env = os.environ.get("NEXUS_API_KEY")

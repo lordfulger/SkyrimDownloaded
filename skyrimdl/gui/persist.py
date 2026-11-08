@@ -140,6 +140,7 @@ class PersistMixin:
             if ui.get("maximized", True):
                 self.maximize()  # full screen unless you un-maximized it last time
             elif ui.get("geometry"):
+                self._want_max = False
                 try:
                     self.root.geometry(ui["geometry"])
                 except tk.TclError:

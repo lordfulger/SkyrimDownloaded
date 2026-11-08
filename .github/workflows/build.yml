@@ -58,7 +58,8 @@ jobs:
           $iconArgs = @()
           if (Test-Path assets/logo.png) {
             python tools/make_icon.py
-            $iconArgs = @("--icon", "assets/icon.ico", "--add-data", "assets/icon.png;assets")
+            $iconArgs = @("--icon", "assets/icon.ico", "--add-data", "assets/icon.png;assets",
+                          "--add-data", "assets/icon.ico;assets")
           }
           python -m PyInstaller --onefile --windowed --name SkyrimDownloaded @iconArgs run_skyrimdl.py
       - name: Check it starts

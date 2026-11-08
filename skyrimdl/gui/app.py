@@ -543,23 +543,13 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
             return None
 
     def _set_window_icon(self) -> None:
-        """The logo in the title bar and on the taskbar (when assets/logo.png is in the project)."""
-        if sys.platform == "win32":
-            try:  # its own taskbar button and icon, not Python's
-                import ctypes
-                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("lordfulger.SkyrimDownloaded")
-            except Exception:
-                pass
-        big = self._logo_image(256)
-        if big is not None:
-            self._icon = big
-            try:
-                self.root.iconphoto(True, big)
-            except tk.TclError:
-                pass
+        """The logo in the title bar and on the taskbar (also set before the window shows)."""
+        if getattr(self.root, "_app_icon", None) is None:
+            set_app_icon(self.root)
 
     def maximize(self) -> None:
         """Fill the screen (the window's maximize button)."""
+        self._want_max = True
         try:
             if sys.platform == "win32":
                 self.root.state("zoomed")
@@ -716,10 +706,58 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.root.destroy()
 
 
+def asset_path(name: str):
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+    path = base / "assets" / name
+    return path if path.is_file() else None
+
+
+def set_app_icon(root) -> None:
+    """The logo for the title bar, the taskbar and every window the app opens.
+
+    On Windows the .ico (all sizes) is the default icon for every window; the .png is set
+    too (and is what other systems use). Without either, Tk's feather shows."""
+    if sys.platform == "win32":
+        try:  # its own taskbar button and icon, not Python's
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("lordfulger.SkyrimDownloaded")
+        except Exception:
+            pass
+        ico = asset_path("icon.ico")
+        if ico:
+            try:
+                root.iconbitmap(default=str(ico))
+            except tk.TclError:
+                pass
+    png = asset_path("icon.png") or asset_path("logo.png")
+    if png:
+        try:
+            if png.name == "logo.png":
+                try:  # running from source: crop the logo to its emblem with Pillow
+                    from PIL import Image, ImageTk
+                    img = Image.open(png).convert("RGBA")
+                    side = min(img.size)
+                    left, top = (img.width - side) // 2, (img.height - side) // 2
+                    photo = ImageTk.PhotoImage(img.crop((left, top, left + side, top + side)).resize((256, 256)))
+                except ImportError:
+                    photo = tk.PhotoImage(file=str(png))
+            else:
+                photo = tk.PhotoImage(file=str(png))
+            root._app_icon = photo  # keep a reference
+            root.iconphoto(True, photo)
+        except (tk.TclError, OSError):
+            pass
+
+
 def run_gui(settings: Settings) -> int:
     logs.setup()
     root = tk.Tk()
-    App(root, settings)
+    root.withdraw()          # stay hidden until the logo is set and the window is built
+    set_app_icon(root)
+    app = App(root, settings)
+    root.deiconify()
+    if getattr(app, "_want_max", True):
+        app.maximize()  # showing a hidden window can drop the maximized state
     root.mainloop()
     return 0
 

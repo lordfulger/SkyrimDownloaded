@@ -14,6 +14,8 @@ PAYLOADS = {
     203: b"D" * 7_000,        # optional patch
     204: b"E" * 1_000,        # old version
     301: b"F" * 1_100,        # SKSE: only size_kb given, like the real v1 API
+    401: b"G" * 1_024, 402: b"H" * 1_024, 403: b"I" * 1_024, 404: b"J" * 1_024,
+    501: b"K" * 1_024,
 }
 
 MODS = {
@@ -21,7 +23,15 @@ MODS = {
             "summary": "Elegant, PC-friendly interface", "available": True, "status": "published",
             "category_id": 42},
     1000: {"mod_id": 1000, "name": "Pretty Textures", "version": "2.0", "author": "someone",
-           "summary": "Textures", "available": True, "status": "published", "category_id": 29},
+           "summary": "Textures", "available": True, "status": "published", "category_id": 29,
+           "endorsement_count": 1234, "mod_downloads": 56789, "updated_timestamp": 1700000000,
+           "description": "[b]Pretty textures[/b] for everything.<br />[size=4]Compatibility[/size]<br />"
+                          "[list][*]Needs SkyUI for the menu.[*]Incompatible with "
+                          "[url=https://www.nexusmods.com/skyrimspecialedition/mods/17230]Engine Fixes[/url] "
+                          "(just for testing).[/list][img]https://example.com/a.png[/img]"},
+    266: {"mod_id": 266, "name": "Unofficial Skyrim Special Edition Patch", "version": "4.3.2",
+          "author": "Arthmoor", "available": True, "status": "published", "category_id": 84,
+          "summary": "Fixes bugs.", "description": "Fixes lots of bugs."},
     30379: {"mod_id": 30379, "name": "SKSE64", "version": "2.2.6", "author": "ianpatt",
             "available": True, "status": "published", "category_id": 39},
     17230: {"mod_id": 17230, "name": "SSE Engine Fixes", "version": "7.0", "author": "aers",
@@ -52,6 +62,11 @@ FILES = {
          "category_name": "OLD_VERSION", "is_primary": False, "size_in_bytes": len(PAYLOADS[204]),
          "file_name": "Pretty Textures 1K-1000-1-0.7z", "uploaded_timestamp": 1500000000,
          "description": "old"},
+    ],
+    266: [
+        {"file_id": 501, "name": "USSEP", "version": "4.3.2", "category_id": 1, "is_primary": True,
+         "size_kb": 1, "file_name": "USSEP-266-4-3-2.7z", "uploaded_timestamp": 1700000000,
+         "description": ""},
     ],
     17230: [
         {"file_id": 401, "name": "SSE Engine Fixes for 1.5.97", "version": "6.2", "category_id": 1,

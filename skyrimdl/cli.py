@@ -14,7 +14,7 @@ from .config import Settings, choices_path, load_choices, save_choices
 from .engine import (DONE, missing_requirements, FAILED, SENT, SKIPPED, STOPPED, WORKING, Job, ModPlan, Runner,
                      jobs_for, resolve, summary)
 from .links import parse_list
-from . import finder
+from . import compat, finder
 from .managers import ManagerError, make_target
 from .nexus import AuthError, NexusClient, NexusError
 from .gameversion import PRESETS, STORES, find_games, mo2_game_path, version_text
@@ -53,12 +53,15 @@ def ask_choice(plan: ModPlan, include_old: bool = False, inp=None,
         _out(f"      ({len(hidden)} file(s) for other game versions left out: "
              + ", ".join(f"{o.name} [{o.fit.note}]" for o in hidden[:4]) + ")")
     while True:
-        answer = inp("   Files to get (e.g. 1,3), Enter = keep [x], ? = descriptions, 0 = skip mod: ").strip()
+        answer = inp("   Files to get (e.g. 1,3), Enter = keep [x], ? = descriptions, "
+                     "s = skip for now, 0 = leave mod out: ").strip()
         if answer == "":
             if plan.selected:
                 break
             _out("   Nothing picked yet: type a number, or 0 to skip this mod.")
             continue
+        if answer.lower() == "s":
+            return "later"
         if answer == "?":
             show(True)
             continue
@@ -246,6 +249,34 @@ def _check_requirements(client, plans, list_path, remembered, args, settings):
     return plans
 
 
+def _compat_report(client, plans, args) -> None:
+    """Print how the mods in the list relate to each other; offer the patches found."""
+    report = compat.check(plans, client)
+    if not report.findings:
+        _out("\nCompatibility: no links found between the mods in your list.")
+        return
+    _out(f"\nCompatibility: {len(report.findings)} link(s) between your mods")
+    for kind in (compat.CONFLICT, compat.PATCH, compat.NEEDS, compat.WORKS_WITH, compat.MENTIONS):
+        items = report.by_kind(kind)
+        if not items:
+            continue
+        _out(f"  {compat.HEADINGS[kind]}:")
+        for f in items[:30]:
+            ticked = ""
+            if kind == compat.PATCH:
+                ticked = " (ticked)" if f.file_id in f.plan.selected else " (not ticked)"
+            _out(f"    - {f.text}{ticked}")
+    missing = [f for f in report.by_kind(compat.PATCH) if f.file_id not in f.plan.selected]
+    if missing:
+        if args.yes:
+            _out("  (not adding the suggested patches: --yes doesn't change your picks)")
+            return
+        if input(f"  Tick the {len(missing)} suggested patch file(s)? [Y/n] ").strip().lower() in ("", "y", "yes"):
+            for f in missing:
+                if f.file_id not in f.plan.selected:
+                    f.plan.selected.append(f.file_id)
+
+
 def cmd_run(args, settings: Settings) -> int:
     _apply_overrides(args, settings)
     list_path = Path(args.list)
@@ -301,9 +332,18 @@ def cmd_run(args, settings: Settings) -> int:
         if plan.error:
             _out(f"  !! {plan.title} ({plan.entry.page_url}): {plan.error}")
     if not args.yes:
-        for plan in plans:
-            if plan.needs_choice and not plan.error:
-                ask_choice(plan, args.include_old, include_other=args.show_other_versions)
+        queue = [p for p in plans if p.needs_choice and not p.error]
+        while queue:
+            plan = queue.pop(0)
+            if ask_choice(plan, args.include_old, include_other=args.show_other_versions) == "later":
+                if queue:
+                    _out("   Skipped for now - it comes back at the end.")
+                    queue.append(plan)
+                else:
+                    _out("   That was the last one: keeping the ticked files.")
+                    plan.needs_choice = False
+    if not args.no_compat:
+        _compat_report(client, plans, args)
     save_choices(store, plans)
 
     jobs = jobs_for(plans)
@@ -391,6 +431,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--dry-run", action="store_true", help="look everything up, download nothing")
     run.add_argument("--add-requirements", action="store_true",
                      help="add missing requirements to the list without asking")
+    run.add_argument("--no-compat", action="store_true",
+                     help="don't check how the mods in the list relate to each other")
     run.add_argument("--no-requirements", action="store_true",
                      help="don't check mods' requirements")
     return p

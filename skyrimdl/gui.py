@@ -5,6 +5,7 @@ from __future__ import annotations
 import queue
 import re
 import threading
+import time
 import webbrowser
 from pathlib import Path
 
@@ -20,7 +21,9 @@ from . import finder
 from . import theme as theme_mod
 from .managers import ManagerError, make_target
 from .nexus import NexusClient, NexusError
-from . import gameversion
+from . import compat, gameversion
+from .scrolling import AutoScroll, wheel_scroll
+from .text import bbcode_to_text
 from .engine import rechoose
 from .selection import annotate, for_other_versions, human_size, visible_options
 
@@ -49,7 +52,8 @@ class App:
         self._list_was_saved = False
 
         root.title(f"SkyrimDownloaded {__version__}")
-        root.geometry("1060x800")
+        height = max(640, min(940, root.winfo_screenheight() - 90))
+        root.geometry(f"1100x{height}")
         root.minsize(820, 600)
         self.theme = theme_mod.Theme(root, settings.theme)
         root._theme = self.theme  # dialogs pick it up from their parent
@@ -161,48 +165,71 @@ class App:
         self.game_note_var = tk.StringVar(value="Files for other versions are left out.")
         ttk.Label(game, textvariable=self.game_note_var, style="Muted.TLabel").pack(side="left", padx=8)
 
+        # Sections 3 and 4 share the space; drag the bar between them to resize.
+        panes = ttk.PanedWindow(outer, orient="vertical")
+        panes.pack(fill="both", expand=True, **pad)
+        self.panes = panes
+        # Give the mod list about a third of the space to start with.
+        self.root.after(250, lambda: panes.winfo_height() > 50 and panes.sashpos(
+            0, max(150, int(panes.winfo_height() * 0.33))))
+
         # List
-        lst = ttk.LabelFrame(outer, text="3. Mod list (Nexus links, nxm:// links or mod numbers, one per line)")
-        lst.pack(fill="x", **pad)
+        lst = ttk.LabelFrame(panes, text="3. Mod list (Nexus links, nxm:// links or mod numbers, one per line)")
         bar = ttk.Frame(lst)
         bar.pack(fill="x", padx=6, pady=4)
-        ttk.Button(bar, text="Open list…", command=self.open_list).pack(side="left")
-        ttk.Button(bar, text="Save list…", command=self.save_list).pack(side="left", padx=4)
+        ttk.Button(bar, text="Open list\u2026", command=self.open_list).pack(side="left")
+        ttk.Button(bar, text="Save list\u2026", command=self.save_list).pack(side="left", padx=4)
         self.list_label = tk.StringVar(value="(type or paste links below)")
         ttk.Label(bar, textvariable=self.list_label).pack(side="left", padx=8)
-        self.lookup_btn = ttk.Button(bar, text="Look up mods ▶", command=self.lookup)
+        self.lookup_btn = ttk.Button(bar, text="Look up mods \u25B6", command=self.lookup)
         self.lookup_btn.pack(side="right")
         self.fresh_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(bar, text="Forget last choices", variable=self.fresh_var).pack(side="right", padx=8)
-        self.list_text = tk.Text(lst, height=5, wrap="none", undo=True, relief="flat",
+        box = ttk.Frame(lst)
+        box.pack(fill="both", expand=True, padx=6, pady=(0, 6))
+        self.list_text = tk.Text(box, height=5, wrap="none", undo=True, relief="flat",
                                  highlightthickness=1)
-        self.list_text.pack(fill="x", padx=6, pady=(0, 6))
+        ys = ttk.Scrollbar(box, orient="vertical", command=self.list_text.yview)
+        xs = ttk.Scrollbar(box, orient="horizontal", command=self.list_text.xview)
+        self.list_text.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
+        self.list_text.grid(row=0, column=0, sticky="nsew")
+        ys.grid(row=0, column=1, sticky="ns")
+        xs.grid(row=1, column=0, sticky="ew")
+        box.rowconfigure(0, weight=1)
+        box.columnconfigure(0, weight=1)
+        AutoScroll(self.list_text)
+        panes.add(lst, weight=1)
 
         # Plan
-        plan = ttk.LabelFrame(outer, text="4. Files to get (click the box or double-click a file to tick/untick it)")
-        plan.pack(fill="both", expand=True, **pad)
+        plan = ttk.LabelFrame(panes, text="4. Files to get (click the box or double-click a file to tick/untick "
+                                          "it; click a mod to see its Nexus page)")
+        panes.add(plan, weight=3)
         tools = ttk.Frame(plan)
         tools.pack(fill="x", padx=6, pady=4)
-        ttk.Button(tools, text="Choose options…", command=self.walk_choices).pack(side="left")
-        ttk.Button(tools, text="Open mod page", command=self.open_page).pack(side="left", padx=4)
+        ttk.Button(tools, text="Choose options\u2026", command=self.walk_choices).pack(side="left")
+        self.compat_btn = ttk.Button(tools, text="Check compatibility",
+                                     command=lambda: self.check_compatibility(auto=False))
+        self.compat_btn.pack(side="left", padx=4)
+        ttk.Button(tools, text="Open mod page", command=self.open_page).pack(side="left")
         self.old_var = tk.BooleanVar(value=False)
         self.other_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(tools, text="Show files for other game versions", variable=self.other_var,
-                        command=self._fill_tree).pack(side="left", padx=8)
-        ttk.Checkbutton(tools, text="Show old versions", variable=self.old_var,
-                        command=self._fill_tree).pack(side="left", padx=8)
+        ttk.Checkbutton(tools, text="Other game versions", variable=self.other_var,
+                        command=self._fill_tree).pack(side="left", padx=(10, 4))
+        ttk.Checkbutton(tools, text="Old versions", variable=self.old_var,
+                        command=self._fill_tree).pack(side="left", padx=4)
         self.plan_var = tk.StringVar()
         ttk.Label(tools, textvariable=self.plan_var).pack(side="right")
 
+        split = ttk.PanedWindow(plan, orient="horizontal")
+        split.pack(fill="both", expand=True, padx=6, pady=(0, 6))
         cols = ("get", "type", "version", "size", "status")
-        frame = ttk.Frame(plan)
-        frame.pack(fill="both", expand=True, padx=6)
+        frame = ttk.Frame(split)
         self.tree = ttk.Treeview(frame, columns=cols, show="tree headings", selectmode="browse")
-        for col, text, width in (("#0", "Mod / file", 420), ("get", "Get", 44), ("type", "Type", 80),
-                                 ("version", "Version", 90), ("size", "Size", 80),
-                                 ("status", "Status", 260)):
+        for col, text, width in (("#0", "Mod / file", 300), ("get", "Get", 40), ("type", "Type", 70),
+                                 ("version", "Version", 70), ("size", "Size", 70),
+                                 ("status", "Status", 220)):
             self.tree.heading(col, text=text)
-            self.tree.column(col, width=width, stretch=col in ("#0", "status"),
+            self.tree.column(col, width=width, minwidth=36, stretch=col in ("#0", "status"),
                              anchor="center" if col == "get" else "w")
         sb = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
@@ -212,11 +239,22 @@ class App:
         self.tree.bind("<space>", lambda e: self._toggle(self.tree.focus()))
         self.tree.bind("<<TreeviewSelect>>", self._show_details)
         self.tree.bind("<Double-1>", self._tree_double)
+        AutoScroll(self.tree)
+        split.add(frame, weight=3)
 
-        self.details = tk.Text(plan, height=4, wrap="word", state="disabled", relief="flat",
-                               highlightthickness=1)
-        self.details._details = True
-        self.details.pack(fill="x", padx=6, pady=6)
+        # Nexus page info for the mod clicked in the list.
+        info = ttk.Frame(split)
+        self.info = tk.Text(info, wrap="word", state="disabled", relief="flat", highlightthickness=1,
+                            width=42, padx=10, pady=8, cursor="arrow", font="TkDefaultFont")
+        self.info._details = True
+        info_sb = ttk.Scrollbar(info, orient="vertical", command=self.info.yview)
+        self.info.configure(yscrollcommand=info_sb.set)
+        self.info.pack(side="left", fill="both", expand=True)
+        info_sb.pack(side="right", fill="y")
+        AutoScroll(self.info)
+        split.add(info, weight=2)
+        self._links: dict[str, str] = {}
+        self.compat: compat.Report | None = None
 
         # Go
         go = ttk.Frame(outer)
@@ -469,6 +507,7 @@ class App:
         state = "disabled" if busy else "normal"
         self.lookup_btn.configure(state=state)
         self.find_btn.configure(state=state)
+        self.compat_btn.configure(state=state)
         self.start_btn.configure(state=state)
         self.stop_btn.configure(state="normal" if busy else "disabled")
 
@@ -487,6 +526,7 @@ class App:
                     self.status_var.set(f"Looked up {done} of {total} mods")
                 elif kind == "plans":
                     self.plans = payload
+                    self.compat = None
                     self._fill_tree()
                     waiting = sum(1 for p in self.plans if p.needs_choice and not p.error)
                     self.status_var.set(f"{len(self.plans)} mods looked up"
@@ -497,6 +537,8 @@ class App:
                     self._clipboard_login_done(*payload)
                 elif kind == "where":
                     self.where_var.set(payload)
+                elif kind == "compat":
+                    self._compat_done(*payload)
                 elif kind == "games":
                     self._games_found(*payload)
                 elif kind == "found":
@@ -750,6 +792,10 @@ class App:
                 status = "Choose files: " + plan.reason
             else:
                 status = plan.reason
+            warns = self.compat.warnings().get(id(plan)) if self.compat else None
+            if warns and not plan.error:
+                status = "\u26a0 " + "; ".join(warns[:2]) + " \u00b7 " + status
+            suggested = self.compat.suggestions().get(id(plan), {}) if self.compat else {}
             author = f"  by {plan.mod.author}" if plan.mod and plan.mod.author else ""
             row = self.tree.insert("", "end", text=f"{plan.title}{author}", open=plan.needs_choice,
                                    values=("", "", plan.mod.version if plan.mod else "", "", status),
@@ -759,7 +805,7 @@ class App:
                 on = opt.file_id in plan.selected
                 child = self.tree.insert(row, "end", text=opt.name,
                                          values=(ON if on else OFF, opt.category_label, opt.version,
-                                                 opt.size_text, _file_status(opt)),
+                                                 opt.size_text, _file_status(opt, suggested.get(opt.file_id))),
                                          tags=() if on else ("off",))
                 self._row_option[child] = (plan, opt.file_id)
             # Selected files that are hidden (e.g. an old version linked in the list).
@@ -813,22 +859,111 @@ class App:
                 self.tree.set(row, "status", plan.reason)
 
     def _show_details(self, _event=None) -> None:
+        """Show the Nexus page info for the mod (or file) clicked in the list."""
         row = self.tree.focus()
-        text = ""
         if row in self._row_option:
             plan, fid = self._row_option[row]
-            opt = plan.option(fid)
-            if opt:
-                text = f"{opt.name}  ({opt.file_name}, {opt.size_text})\n{opt.description or 'No description.'}"
+            self._render_info(plan, plan.option(fid))
         elif row in self._row_plan:
-            plan = self._row_plan[row]
-            text = plan.entry.page_url + "\n" + (plan.mod.summary if plan.mod else (plan.error or ""))
-            if plan.entry.note:
-                text += f"\nYour note: {plan.entry.note}"
-        self.details.configure(state="normal")
-        self.details.delete("1.0", "end")
-        self.details.insert("1.0", text)
-        self.details.configure(state="disabled")
+            self._render_info(self._row_plan[row], None)
+
+    def _render_info(self, plan: ModPlan, opt) -> None:
+        t = self.info
+        c = self.theme.colors
+        t.configure(state="normal")
+        t.delete("1.0", "end")
+        for tag in list(self._links):
+            t.tag_delete(tag)
+        self._links.clear()
+        t.tag_configure("title", font=("TkDefaultFont", 13, "bold"), spacing3=2)
+        t.tag_configure("h", font=("TkDefaultFont", 10, "bold"), spacing1=8, spacing3=2)
+        t.tag_configure("meta", foreground=c["muted"])
+        t.tag_configure("warn", foreground=c["error"])
+        t.tag_configure("good", foreground=c["done"])
+        t.tag_configure("link", foreground=c["accent"], underline=True)
+
+        def put(text: str, *tags: str) -> None:
+            t.insert("end", text, tags)
+
+        def link(text: str, url: str) -> None:
+            tag = f"link{len(self._links)}"
+            self._links[tag] = url
+            t.insert("end", text, ("link", tag))
+            t.tag_bind(tag, "<Button-1>", lambda e, u=url: webbrowser.open(u))
+            t.tag_bind(tag, "<Enter>", lambda e: t.configure(cursor="hand2"))
+            t.tag_bind(tag, "<Leave>", lambda e: t.configure(cursor="arrow"))
+
+        mod = plan.mod
+        raw = mod.raw if mod else {}
+        if opt:
+            put(opt.name + "\n", "title")
+            bits = [opt.category_label + " file"]
+            if opt.version:
+                bits.append(f"v{opt.version}")
+            bits.append(opt.size_text)
+            if opt.uploaded:
+                bits.append("uploaded " + time.strftime("%d %b %Y", time.localtime(opt.uploaded)))
+            put(" \u00b7 ".join(bits) + "\n", "meta")
+            if opt.fit.note and opt.fit.status != "unknown":
+                put(("\u2713 " if not opt.fit.hidden else "\u26a0 ") + opt.fit.note + "\n",
+                    "warn" if opt.fit.hidden else "good")
+            why = (self.compat.suggestions().get(id(plan), {}).get(opt.file_id) if self.compat else None)
+            if why:
+                put(f"\u2605 Suggested patch: {why}\n", "good")
+            put("\n" + (opt.description or "No description for this file.") + "\n")
+            put("\nPart of\n", "h")
+        put((mod.name if mod else plan.title) + "\n", "h" if opt else "title")
+        if mod:
+            meta = []
+            if mod.author:
+                meta.append(f"by {mod.author}")
+            if mod.version:
+                meta.append(f"version {mod.version}")
+            if raw.get("updated_timestamp"):
+                meta.append("updated " + time.strftime("%d %b %Y", time.localtime(int(raw["updated_timestamp"]))))
+            put(" \u00b7 ".join(meta) + "\n", "meta")
+            counts = []
+            if raw.get("endorsement_count") is not None:
+                counts.append(f"{int(raw['endorsement_count']):,} endorsements")
+            if raw.get("mod_downloads") is not None:
+                counts.append(f"{int(raw['mod_downloads']):,} downloads")
+            if counts:
+                put(" \u00b7 ".join(counts) + "\n", "meta")
+        link("Open on Nexus \u2197", plan.entry.page_url)
+        put("   ")
+        link("Files tab \u2197", plan.entry.page_url + "?tab=files")
+        put("\n")
+        if plan.error:
+            put(f"\n\u26a0 {plan.error}\n", "warn")
+        if plan.entry.note:
+            put(f"\nYour note: {plan.entry.note}\n", "meta")
+        if self.compat:
+            notes = self.compat.notes_for(plan)
+            if notes:
+                put("\nLinks with your other mods\n", "h")
+                for n in notes[:12]:
+                    put(f"\u2022 {n}\n")
+        reqs = None
+        if self.client and mod:
+            reqs = self.client._cache.get(f"req:{plan.entry.game}/{plan.entry.mod_id}")
+        if reqs:
+            have = {p.entry.mod_id for p in self.plans}
+            put("\nRequirements on Nexus\n", "h")
+            for r in reqs:
+                mark, tag = ("\u2713 in your list", "good") if r.mod_id in have else (
+                    ("not on Nexus", "meta") if r.external else ("not in your list", "warn"))
+                put(f"\u2022 {r.name} ")
+                put(f"({mark})\n", tag)
+        if mod and not opt:
+            if mod.summary:
+                put("\nSummary\n", "h")
+                put(bbcode_to_text(mod.summary) + "\n")
+            desc = bbcode_to_text(str(raw.get("description") or ""))
+            if desc:
+                put("\nDescription\n", "h")
+                put(desc + "\n")
+        t.configure(state="disabled")
+        t.yview_moveto(0)
 
     def _focused_plan(self) -> ModPlan | None:
         row = self.tree.focus()
@@ -841,15 +976,65 @@ class App:
         if plan:
             webbrowser.open(plan.entry.page_url + "?tab=files")
 
-    def walk_choices(self) -> None:
-        """Step through every mod with options, one at a time, like a collection install."""
-        waiting = [p for p in self.plans if p.needs_choice and not p.error]
-        plans = waiting or [p for p in self.plans if not p.error and len(visible_options(p.options)) > 1]
+    def walk_choices(self, plans: list | None = None, review: bool = False) -> None:
+        """Step through every mod with options, one at a time, like a collection install.
+        Afterwards the mods are checked for links with each other (compatibility)."""
+        if plans is None:
+            waiting = [p for p in self.plans if p.needs_choice and not p.error]
+            plans = waiting or [p for p in self.plans if not p.error and len(visible_options(p.options)) > 1]
         if not plans:
+            if review:
+                return
             messagebox.showinfo("SkyrimDownloaded", "No mods with options to choose.", parent=self.root)
             return
-        ChoiceDialog(self.root, plans, self.old_var.get(), self.other_var.get()).wait_window()
+        report = self.compat
+        dlg = ChoiceDialog(self.root, plans, self.old_var.get(), self.other_var.get(),
+                           suggestions=report.suggestions() if report else {},
+                           warnings=report.warnings() if report else {},
+                           title="Review linked mods" if review else "Choose options")
+        dlg.wait_window()
         self._fill_tree()
+        if not review:
+            self.check_compatibility(auto=True)
+
+    # -- compatibility ----------------------------------------------------------
+
+    def check_compatibility(self, auto: bool) -> None:
+        if not self.plans:
+            if not auto:
+                messagebox.showinfo("SkyrimDownloaded", "Look up the mods in your list first.", parent=self.root)
+            return
+        client, plans = self.client, list(self.plans)
+        self.status_var.set("Checking how your mods relate to each other\u2026")
+
+        def work():
+            self.events.put(("compat", (compat.check(plans, client), auto)))
+        self._background(work)
+
+    def _compat_done(self, report: "compat.Report", auto: bool) -> None:
+        self.compat = report
+        self._fill_tree()
+        self._show_details()
+        n = len(report.findings)
+        self.status_var.set(f"Compatibility: {n} link(s) between your mods" if n
+                            else "Compatibility: no links found between your mods")
+        if not report.findings:
+            if not auto:
+                messagebox.showinfo("Compatibility", "None of the mods in your list mention each other: "
+                                    "no requirements, patches or conflicts between them were found.",
+                                    parent=self.root)
+            return
+        review = CompatDialog(self.root, report)
+        review.wait_window()
+        if review.choice == "review":
+            to_review = report.plans_to_review()
+            for plan in to_review:  # tick the suggested patches; you can untick them
+                for fid in report.suggestions().get(id(plan), {}):
+                    if fid not in plan.selected:
+                        plan.selected.append(fid)
+                        plan.reason = "suggested patch ticked - check it"
+            self._fill_tree()
+            self.walk_choices(to_review, review=True)
 
     # -- downloading ------------------------------------------------------------
 
@@ -969,8 +1154,10 @@ class App:
         self.root.destroy()
 
 
-def _file_status(opt) -> str:
+def _file_status(opt, suggested: str | None = None) -> str:
     bits = []
+    if suggested:
+        bits.append("\u2605 suggested patch")
     if opt.is_primary:
         bits.append("primary")
     if opt.fit.status == "ok" and opt.fit.note:
@@ -1016,49 +1203,64 @@ def pick_one(master, title: str, prompt: str, items: list, describe):
 
 
 class ChoiceDialog(tk.Toplevel):
-    """One mod at a time: tick the files you want, Back / Skip mod / Next."""
+    """One mod at a time: tick the files you want. Back / Skip for now / Leave out / Next.
 
-    def __init__(self, master, plans: list[ModPlan], include_old: bool, include_other: bool = False):
+    Mods skipped for now come back at the end, after all the others.
+    """
+
+    def __init__(self, master, plans: list[ModPlan], include_old: bool, include_other: bool = False, *,
+                 suggestions: dict | None = None, warnings: dict | None = None,
+                 title: str = "Choose options"):
         super().__init__(master)
-        self.plans = plans
+        self.plans = list(plans)
         self.include_old = include_old
         self.include_other = include_other
+        self.suggestions = suggestions or {}
+        self.warnings = warnings or {}
+        self.later: list[ModPlan] = []      # skipped for now
         self.index = 0
         self.vars: list[tuple[tk.BooleanVar, int]] = []
-        self.title("Choose options")
-        self.geometry("760x560")
+        self.title(title)
+        self.geometry("800x600")
+        self.minsize(560, 380)
         self.transient(master)
         self.grab_set()
 
         self.head = tk.StringVar()
         self.sub = tk.StringVar()
         ttk.Label(self, textvariable=self.head, style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
-        ttk.Label(self, textvariable=self.sub, style="Muted.TLabel").pack(anchor="w", padx=12)
+        ttk.Label(self, textvariable=self.sub, style="Muted.TLabel", wraplength=760).pack(anchor="w", padx=12)
+        self.warn = tk.StringVar()
+        self.warn_label = ttk.Label(self, textvariable=self.warn, wraplength=760, style="Warn.TLabel")
+        self.warn_label.pack(anchor="w", padx=12)
 
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True, padx=12, pady=8)
-        self.canvas = tk.Canvas(body, highlightthickness=0)
+        self.canvas = tk.Canvas(body, highlightthickness=0, yscrollincrement=18)
         sb = ttk.Scrollbar(body, orient="vertical", command=self.canvas.yview)
         self.inner = ttk.Frame(self.canvas)
         self.inner.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-        self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
+        self._window = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
+        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._window, width=e.width))
         self.canvas.configure(yscrollcommand=sb.set)
         self.canvas.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
+        self.autoscroll = AutoScroll(self.canvas)
 
         btns = ttk.Frame(self)
         btns.pack(fill="x", padx=12, pady=(0, 12))
-        ttk.Button(btns, text="◀ Back", command=lambda: self.go(-1)).pack(side="left")
+        ttk.Button(btns, text="\u25C0 Back", command=lambda: self.go(-1)).pack(side="left")
         ttk.Button(btns, text="Open mod page", command=self.open_page).pack(side="left", padx=6)
         self.count = tk.StringVar()
-        ttk.Label(btns, textvariable=self.count).pack(side="left", padx=12)
+        ttk.Label(btns, textvariable=self.count).pack(side="left", padx=8)
         ttk.Button(btns, text="Done", command=self.finish).pack(side="right")
-        ttk.Button(btns, text="Next ▶", command=lambda: self.go(1)).pack(side="right", padx=6)
-        ttk.Button(btns, text="Leave this mod out", command=self.skip).pack(side="right")
+        ttk.Button(btns, text="Next \u25B6", style="Accent.TButton", command=lambda: self.go(1)).pack(side="right", padx=6)
+        ttk.Button(btns, text="Leave this mod out", command=self.leave_out).pack(side="right")
+        ttk.Button(btns, text="Skip for now", command=self.skip_for_now).pack(side="right", padx=6)
+        self.bind("<Next>", lambda e: self.canvas.yview_scroll(1, "pages"))
+        self.bind("<Prior>", lambda e: self.canvas.yview_scroll(-1, "pages"))
         self.protocol("WM_DELETE_WINDOW", self.finish)
         self.show()
-        if getattr(master, "_theme", None):
-            master._theme.paint(self)
 
     @property
     def plan(self) -> ModPlan:
@@ -1070,8 +1272,14 @@ class ChoiceDialog(tk.Toplevel):
         plan = self.plan
         author = f" by {plan.mod.author}" if plan.mod and plan.mod.author else ""
         self.head.set(plan.title + author)
-        self.sub.set(plan.reason + (f"   •   your note: {plan.entry.note}" if plan.entry.note else ""))
-        self.count.set(f"Mod {self.index + 1} of {len(self.plans)}")
+        sub = plan.reason
+        if plan in self.later:
+            sub = "You skipped this one earlier - choose now, or Done to leave it for later."
+        self.sub.set(sub + (f"   \u2022   your note: {plan.entry.note}" if plan.entry.note else ""))
+        warns = self.warnings.get(id(plan), [])
+        self.warn.set("\u26a0 " + "; ".join(warns) if warns else "")
+        skipped = f"   \u2022   {len(self.later)} skipped for later" if self.later else ""
+        self.count.set(f"Mod {self.index + 1} of {len(self.plans)}{skipped}")
         self.vars = []
         last_cat = None
         options = visible_options(plan.options, self.include_old, self.include_other)
@@ -1082,6 +1290,7 @@ class ChoiceDialog(tk.Toplevel):
             opt = plan.option(fid)
             if opt and opt not in options:
                 options.append(opt)
+        suggested = self.suggestions.get(id(plan), {})
         for opt in options:
             if opt.category_label != last_cat:
                 last_cat = opt.category_label
@@ -1092,16 +1301,31 @@ class ChoiceDialog(tk.Toplevel):
             if opt.fit.note and opt.fit.status != "unknown":
                 text += f"   \u2014 {opt.fit.note}"
             ttk.Checkbutton(self.inner, text=text, variable=var).pack(anchor="w")
+            if opt.file_id in suggested:
+                ttk.Label(self.inner, text=f"\u2605 Suggested patch: {suggested[opt.file_id]}",
+                          style="Good.TLabel").pack(anchor="w", padx=24)
             if opt.description:
-                desc = opt.description if len(opt.description) < 400 else opt.description[:400] + "…"
-                ttk.Label(self.inner, text=desc, wraplength=660, style="Muted.TLabel").pack(anchor="w", padx=24)
+                desc = opt.description if len(opt.description) < 500 else opt.description[:500] + "\u2026"
+                ttk.Label(self.inner, text=desc, wraplength=700, style="Muted.TLabel").pack(anchor="w", padx=24)
             self.vars.append((var, opt.file_id))
         self.canvas.yview_moveto(0)
+        # Wheel and middle-click scrolling anywhere over the list of files.
+        wheel_scroll(self.canvas, self.inner)
+        for w in self.inner.winfo_children():
+            self.autoscroll.attach(w)
+        if getattr(self.master, "_theme", None):
+            self.master._theme.paint(self)
+
+    def _ticked(self) -> list[int]:
+        return [fid for var, fid in self.vars if var.get()]
 
     def commit(self) -> None:
-        self.plan.selected = [fid for var, fid in self.vars if var.get()]
-        self.plan.needs_choice = False
-        self.plan.reason = "your choice" if self.plan.selected else "nothing ticked - mod left out"
+        plan = self.plan
+        plan.selected = self._ticked()
+        plan.needs_choice = False
+        plan.reason = "your choice" if plan.selected else "nothing ticked - mod left out"
+        if plan in self.later:
+            self.later.remove(plan)
 
     def go(self, step: int) -> None:
         self.commit()
@@ -1112,7 +1336,23 @@ class ChoiceDialog(tk.Toplevel):
         self.index = max(0, new)
         self.show()
 
-    def skip(self) -> None:
+    def skip_for_now(self) -> None:
+        """Put this mod off: it comes back after all the others."""
+        plan = self.plan
+        plan.needs_choice = True
+        plan.reason = "skipped for now - come back to it"
+        if plan not in self.later:
+            self.later.append(plan)
+        if self.index == len(self.plans) - 1:
+            self.sub.set("This is the last mod in the list. Choose its files, leave it out, or press "
+                         "Done to come back to it later (it stays highlighted).")
+            self.count.set(f"Mod {self.index + 1} of {len(self.plans)}   \u2022   {len(self.later)} skipped for later")
+            return
+        self.plans.pop(self.index)
+        self.plans.append(plan)
+        self.show()
+
+    def leave_out(self) -> None:
         for var, _ in self.vars:
             var.set(False)
         self.go(1)
@@ -1121,8 +1361,82 @@ class ChoiceDialog(tk.Toplevel):
         webbrowser.open(self.plan.entry.page_url + "?tab=files")
 
     def finish(self) -> None:
-        self.commit()
+        plan = self.plan
+        # A mod skipped for now stays to-do unless its ticks were changed.
+        if not (plan in self.later and set(self._ticked()) == set(plan.selected)):
+            self.commit()
+        self.autoscroll.stop()
         self.grab_release()
+        self.destroy()
+
+
+class CompatDialog(tk.Toplevel):
+    """What the compatibility check found, with a button to go over those mods again."""
+
+    def __init__(self, master, report: "compat.Report"):
+        super().__init__(master)
+        self.choice = "close"
+        self.title("Compatibility")
+        self.geometry("820x560")
+        self.transient(master)
+        self.grab_set()
+        n = len(report.findings)
+        review = report.plans_to_review()
+        ttk.Label(self, text=f"{n} link(s) found between the mods in your list",
+                  style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
+        ttk.Label(self, text="From each mod's requirements, its files and its Nexus page. Page text is read "
+                             "automatically, so treat \"possible\" items as things to check.",
+                  style="Muted.TLabel", wraplength=780).pack(anchor="w", padx=12)
+        body = ttk.Frame(self)
+        body.pack(fill="both", expand=True, padx=12, pady=8)
+        text = tk.Text(body, wrap="word", relief="flat", highlightthickness=1, padx=10, pady=8,
+                       font="TkDefaultFont")
+        text._details = True
+        sb = ttk.Scrollbar(body, orient="vertical", command=text.yview)
+        text.configure(yscrollcommand=sb.set)
+        text.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        AutoScroll(text)
+        theme = getattr(master, "_theme", None)
+        c = theme.colors if theme else {"muted": "#555", "error": "#b00020", "done": "#1b7a1b"}
+        text.tag_configure("h", font=("TkDefaultFont", 11, "bold"), spacing1=10, spacing3=4)
+        text.tag_configure("meta", foreground=c["muted"])
+        text.tag_configure("warn", foreground=c["error"])
+        text.tag_configure("good", foreground=c["done"])
+        icons = {compat.CONFLICT: ("\u26a0 ", "warn"), compat.PATCH: ("\u2605 ", "good"),
+                 compat.NEEDS: ("\u2192 ", ""), compat.WORKS_WITH: ("\u2713 ", "good"),
+                 compat.MENTIONS: ("\u2022 ", "meta")}
+        for kind in (compat.CONFLICT, compat.PATCH, compat.NEEDS, compat.WORKS_WITH, compat.MENTIONS):
+            items = report.by_kind(kind)
+            if not items:
+                continue
+            text.insert("end", f"{compat.HEADINGS[kind]} ({len(items)})\n", "h")
+            icon, tag = icons[kind]
+            for f in items:
+                text.insert("end", icon + f.text, tag)
+                if kind == compat.PATCH:
+                    ticked = f.file_id in f.plan.selected
+                    text.insert("end", "  (ticked)" if ticked else "  (not ticked yet)", "meta")
+                text.insert("end", "\n")
+                if f.evidence and kind not in (compat.NEEDS,):
+                    text.insert("end", f"      \u201c{f.evidence[:160]}\u201d\n", "meta")
+        if not report.requirements_checked:
+            text.insert("end", "\n(Couldn't ask Nexus for requirements this time.)\n", "meta")
+        text.configure(state="disabled")
+
+        btns = ttk.Frame(self)
+        btns.pack(fill="x", padx=12, pady=(0, 12))
+        ttk.Button(btns, text="Close", command=self.destroy).pack(side="right")
+        if review:
+            ttk.Button(btns, text=f"Review these {len(review)} mods \u25B6", style="Accent.TButton",
+                       command=self._review).pack(side="right", padx=6)
+            ttk.Label(btns, text="Suggested patches get ticked; you can untick them.",
+                      style="Muted.TLabel").pack(side="left")
+        if theme:
+            theme.paint(self)
+
+    def _review(self) -> None:
+        self.choice = "review"
         self.destroy()
 
 

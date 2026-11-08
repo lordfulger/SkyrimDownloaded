@@ -222,9 +222,25 @@ def fit(name: str, file_name: str, description: str, target: GameTarget | None) 
         return Fit("unknown")
     result = _compare(h, target)
     if from_description and result.status == "other":
-        # A description saying "works on 1.6.1170" isn't proof it won't work on yours.
+        # A description saying "works on 1.6.1170" isn't proof it won't work on yours -
+        # but one saying it's *for* / *requires* a newer version than yours is.
+        newer = [x for x in specific_versions(description[:600]) if x > target.version]
+        if newer and not any(family(x) == target.family and x <= target.version
+                             for x in specific_versions(description[:600])):
+            return Fit("other", f"description says it's for {version_text(max(newer))} (newer than yours)")
         return Fit("unknown", f"description mentions {h.describe()}")
     return result
+
+
+_SPECIFIC = re.compile(
+    r"\b(?:for|requires?|required|needs?|only(?: for| on)?|built for|made for|compiled for|"
+    r"supports? only|minimum(?: version)?(?: is)?|at least)\s*:?\s+(?:skyrim\s+)?(?:(?:SE|AE|SSE)\s+)?"
+    r"(?:v(?:ersion)?\.?\s*)?1[._]([456])[._](\d{2,4})", re.I)
+
+
+def specific_versions(text: str) -> list[Version]:
+    """Versions a text says something is *for*: "for 1.6.1170", "requires AE 1.6.1130"."""
+    return [(1, int(m.group(1)), int(m.group(2))) for m in _SPECIFIC.finditer(text or "")]
 
 
 def _compare(h: Hints, target: GameTarget) -> Fit:
@@ -236,11 +252,16 @@ def _compare(h: Hints, target: GameTarget) -> Fit:
     if h.neutral and not (h.exact or h.ranges):
         return Fit("ok", "all versions")
     v = target.version
-    matches = (any(family(e) == fam for e in h.exact)
+    same_family = [e for e in h.exact if family(e) == fam]
+    matches = (any(e <= v for e in same_family)
                or any(lo <= v <= hi for lo, hi in h.ranges)
                or fam in h.families)
     if matches:
         return Fit("ok", "for your version")
+    newer = [e for e in same_family if e > v]
+    if newer:
+        # Same group but made for a later build than yours, e.g. "for 1.6.1179" on 1.6.1130.
+        return Fit("other", f"for {version_text(max(newer))} (newer than yours)")
     if h.exact or h.ranges or h.families:
         return Fit("other", f"for {h.describe()}")
     return Fit("ok", "for your version")  # only a matching store name

@@ -79,6 +79,8 @@ class Theme:
         s.configure("TFrame", background=c["bg"])
         s.configure("TLabel", background=c["bg"], foreground=c["fg"])
         s.configure("Muted.TLabel", foreground=c["muted"])
+        s.configure("Good.TLabel", foreground=c["done"])
+        s.configure("Warn.TLabel", foreground=c["error"])
         s.configure("Title.TLabel", font=("TkDefaultFont", 13, "bold"))
         s.configure("TLabelframe", background=c["bg"], bordercolor=c["border"])
         s.configure("TLabelframe.Label", background=c["bg"], foreground=c["fg"])

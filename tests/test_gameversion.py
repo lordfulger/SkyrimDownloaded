@@ -69,6 +69,17 @@ class HintTests(unittest.TestCase):
         self.assertEqual(status("Engine Fixes for 1.5.97", GameTarget()), "unknown")
         self.assertTrue(read_hints("Engine Fixes VR").vr)
 
+    def test_newer_than_yours_is_hidden(self):
+        t1130 = GameTarget.from_settings("1.6.1130", "Steam")
+        self.assertEqual(fit("Main for 1.6.1179", "", "", t1130).status, "other")
+        self.assertIn("newer than yours", fit("Main for 1.6.1179", "", "", t1130).note)
+        self.assertEqual(status("Main for 1.6.1130", AE), "ok")      # older build, same group
+        self.assertEqual(status("Main 1.6.659", AE640), "other")       # 659 is newer than 640
+        self.assertEqual(status("Main", SE, "Requires 1.6.1170"), "other")
+        self.assertEqual(status("Main", t1130, "Built for AE 1.6.1179 only"), "other")
+        self.assertEqual(status("Main", AE, "Requires 1.6.1130 or later"), "ok")
+        self.assertEqual(status("Main", SE, "Works on 1.6.1170"), "unknown")  # not specific
+
     def test_file_name_with_underscores(self):
         self.assertEqual(fit("Main", "Display_Tweaks_1_6_1170-34705-0-5-16.7z", "", AE).status, "ok")
         self.assertEqual(fit("Main", "Display_Tweaks_1_5_97-34705-0-5-16.7z", "", AE).status, "other")

@@ -71,11 +71,14 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
    - It searches your drives a few folders deep for `ModOrganizer.exe`, `Vortex.exe` and the marker file Vortex keeps in its downloads folder. This step stops after a minute.
 3. **Your Skyrim:** pick your game version, or press **Detect** to read it from your `SkyrimSE.exe` (see below).
 4. **Mod list:** open a `.txt` file, or type or paste links into the box. Then press **Look up mods**.
-5. **Choose options:** for every mod with more than one file, a window steps you through them one at a time. Tick the files you want, or choose **Leave this mod out**. You can change any choice later in the list.
-   - Tick or untick a file by clicking its box or double-clicking the file.
-   - Select a file to read its description.
-   - Choose **Open mod page** to check the mod's page on Nexus.
-6. **Start downloads.** For "Mod manager downloads", open MO2 or Vortex on your Skyrim setup first. If you stop part way, start again later and it carries on where it left off.
+5. **Choose options:** for every mod with more than one file, a window steps you through them one at a time. Tick the files you want.
+   - **Skip for now** puts a mod off; it comes back after all the others. If you press **Done** while some are still skipped, they stay highlighted in the list.
+   - **Leave this mod out** drops it from this download.
+   - The wheel, middle-click scrolling and Page Up/Down all scroll the list of files.
+   - In the main list, tick or untick a file by clicking its box or double-clicking it. **Choose options…** opens the window again.
+   - **Click a mod** to see its Nexus page in the panel on the right: author, version, last update, endorsements, downloads, summary and full description. The panel also shows its requirements (in your list or not) and its links with your other mods. Click a file to see that file's details.
+6. **Compatibility check:** when you finish choosing options, the tool checks how the mods in your list relate to each other (see below). It then offers to **review** the mods involved, with suggested patches already ticked. **Check compatibility** runs the check again any time.
+7. **Start downloads.** For "Mod manager downloads", open MO2 or Vortex on your Skyrim setup first. If you stop part way, start again later and it carries on where it left off.
 
 ## Picking files for your Skyrim version
 
@@ -92,17 +95,41 @@ Many mods offer separate files for different versions of the game. SSE Engine Fi
   | AE 1130+ | 1.6.1130, 1.6.1170 and later |
   | VR | 1.4.15 |
 
-  Patches inside a group generally work with each other's files, so a plugin made for 1.6.1130 still counts as yours on 1.6.1170.
+  Patches inside a group generally work with each other's files, so a plugin made for 1.6.1130 still counts as yours on 1.6.1170. A file made for a **newer** build than yours is left out, even within your group. For example, on 1.6.1130 a file "for 1.6.1179" is hidden.
 - **What it reads:** Nexus doesn't record which game version a file is for, so the tool reads the file's **name**:
   - version numbers (`1.5.97`, `1.6.640`, `AE 1170`, `1.6.1130+`, `640 and older`)
   - the words *AE*, *pre-AE* and *VR*
   - store names (*GOG*, *Game Pass*)
 
-  Files marked *SE/AE* or *all versions* are kept for everyone. A version only mentioned in a file's **description** is shown as a note, but never hides the file.
+  Files marked *SE/AE* or *all versions* are kept for everyone. A version only mentioned in a file's **description** is shown as a note and doesn't hide the file. The exception is a description that says plainly the file is *for*, *requires* or *needs* a version newer than yours, e.g. "Requires 1.6.1170"; that file is hidden.
 - **Store:** GOG and Game Pass builds have their own files, so set **from** to where your game came from.
 - **Seeing what was left out:** tick **Show files for other game versions**. Each file says what it's for, e.g. "for SE 1.5.97 (not your version)". If every file of a mod looks like it's for another version, nothing is hidden and you're asked to choose.
 - **Changing the version later:** files are picked again right away. Mods where you'd already picked a file for the old version are highlighted for you to check.
 - **Command line:** `--game-version 1.6.1170` (or `any`) and `--store gog`. `detect` shows the Skyrim installs it finds.
+
+## Compatibility check
+
+The check catches things a collection's author would normally have sorted out. For each mod in your list it looks at:
+
+| Where | What it finds |
+|---|---|
+| The mod's **requirements** on Nexus | Mods that rely on another mod in your list ("Pretty Textures needs SkyUI") |
+| The mod's **files** | Patch files for another mod in your list, e.g. a "USSEP patch" file when USSEP is in your list. These are suggested and get ticked when you review. |
+| The mod's **page description** | "incompatible with X" or "don't use with X" (possible conflict), "requires X", "works with X", or a mention of X, where X is another mod in your list |
+
+- **How mods are recognised:** by name, short forms such as "USSEP" for the Unofficial Skyrim Special Edition Patch, and links to their Nexus page.
+- **Review:** walks you through just the mods involved. Warnings ("may conflict with …", "needs …") are shown at the top, and suggested patches are marked with ★.
+- **Read it as a checklist, not a verdict.** Page text is read automatically, so a conflict is flagged as "possible" and is worth checking on the mod's page.
+- **Missing requirements** (mods your list needs but doesn't have) are still offered when you press **Look up mods**.
+- **Command line:** the report is printed after the options, and it offers to tick the suggested patches. `--no-compat` turns it off.
+
+## Scrolling and resizing
+
+- **Middle-click scrolling** works in the mod list, the file list, the info panel and the options window, like a web browser:
+  - Click the wheel once, then move the mouse up or down. The further from where you clicked, the faster it scrolls. Click again, or press Esc, to stop.
+  - Or hold the wheel and drag; it stops when you let go.
+- **Drag the bar** between the mod list (3) and the files (4) to give either one more room. The bar between the file list and the info panel works the same way.
+- The mod list has scrollbars both ways, for long lists and long lines.
 
 ## The list file
 
@@ -168,6 +195,7 @@ Useful flags for `run`:
 | `--include-old` | Also offers old versions |
 | `--game-version 1.6.1170` / `--store gog` | Your game, so files for other versions are left out (`any` turns this off) |
 | `--show-other-versions` | Also offers files that look like they're for other game versions |
+| `--no-compat` | Skips the compatibility check |
 | `--add-requirements` / `--no-requirements` | Adds missing requirements without asking, or skips the requirements check |
 | `--no-install` | Vortex: only download, don't install |
 | `--downloads <folder>` | Uses a different downloads folder |
@@ -204,5 +232,8 @@ skyrimdl/
   config.py      settings, DPAPI-protected API key, saved choices
   theme.py       light / dark / follow-Windows looks for the window
   gameversion.py which game version a file is for; find Skyrim and read SkyrimSE.exe's version
+  compat.py      requirements, patches and conflicts between the mods in a list
+  text.py        Nexus BBCode descriptions to plain text
+  scrolling.py   middle-click and mouse-wheel scrolling
   cli.py, gui.py command line and Tk window
 ```

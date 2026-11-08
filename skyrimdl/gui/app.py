@@ -503,18 +503,51 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         except tk.TclError:
             pass
 
-    def _set_window_icon(self) -> None:
-        """The logo in the title bar and taskbar (when assets/logo.png is in the project)."""
+    def _asset(self, name: str):
         base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
-        for name in ("icon.png", "logo.png"):
-            path = base / "assets" / name
-            if path.is_file():
-                try:
-                    self._icon = tk.PhotoImage(file=str(path))
-                    self.root.iconphoto(True, self._icon)
-                except tk.TclError:
-                    continue
-                return
+        path = base / "assets" / name
+        return path if path.is_file() else None
+
+    def _logo_image(self, size: int):
+        """The logo as a Tk image of about ``size`` pixels (None if there's no logo)."""
+        small = self._asset("logo_small.png") if size <= 64 else None
+        icon = self._asset("icon.png")
+        logo = self._asset("logo.png")
+        try:
+            if small:
+                return tk.PhotoImage(file=str(small))
+            source = icon or logo
+            if source is None:
+                return None
+            try:  # Pillow (bundled in the .exe) scales it nicely
+                from PIL import Image, ImageTk
+                img = Image.open(source).convert("RGBA")
+                side = min(img.size)
+                left, top = (img.width - side) // 2, (img.height - side) // 2
+                img = img.crop((left, top, left + side, top + side)).resize((size, size), Image.LANCZOS)
+                return ImageTk.PhotoImage(img)
+            except ImportError:
+                photo = tk.PhotoImage(file=str(source))
+                factor = max(1, photo.width() // size)
+                return photo.subsample(factor) if factor > 1 else photo
+        except (tk.TclError, OSError):
+            return None
+
+    def _set_window_icon(self) -> None:
+        """The logo in the title bar and on the taskbar (when assets/logo.png is in the project)."""
+        if sys.platform == "win32":
+            try:  # its own taskbar button and icon, not Python's
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("lordfulger.SkyrimDownloaded")
+            except Exception:
+                pass
+        big = self._logo_image(256)
+        if big is not None:
+            self._icon = big
+            try:
+                self.root.iconphoto(True, big)
+            except tk.TclError:
+                pass
 
     def maximize(self) -> None:
         """Fill the screen (the window's maximize button)."""

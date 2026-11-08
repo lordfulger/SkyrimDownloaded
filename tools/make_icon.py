@@ -1,6 +1,7 @@
 """Make the app icon from assets/logo.png: a square around the round emblem in the middle.
 
-Writes assets/icon.ico (all Windows icon sizes) and assets/icon.png (256 px, the window icon).
+Writes assets/icon.ico (all Windows icon sizes) and assets/icon.png (256 px, the title bar and
+taskbar icon).
 Run by the Build workflow before PyInstaller; needs Pillow.
 """
 

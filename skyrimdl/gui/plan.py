@@ -17,31 +17,40 @@ class PlanMixin:
     # -- Ctrl+F ------------------------------------------------------------------
 
     def find(self, event=None):
-        """Ctrl+F: jump to the search box (with the text you selected in the list, if any)."""
+        """Ctrl+F: in the mod list (section 3) it opens that list's Find box; anywhere else,
+        the Search box above the mods (section 4). Text you selected in the list is searched for."""
         try:
             if event is not None and event.widget.winfo_toplevel() is not self.root:
                 return None  # a pop-up window handles its own Ctrl+F
         except (AttributeError, tk.TclError):
             pass
+        focus = self.root.focus_get()
+        in_list = focus in (self.list_text, self.list_find_entry)
+        picked = ""
         try:
-            if self.root.focus_get() is self.list_text and self.list_text.tag_ranges("sel"):
+            if focus is self.list_text and self.list_text.tag_ranges("sel"):
                 picked = self.list_text.get("sel.first", "sel.last").strip()
-                if picked and "\n" not in picked:
-                    self.filter_var.set(picked)
         except tk.TclError:
             pass
-        self.search_entry.focus_set()
-        self.search_entry.select_range(0, "end")
-        self.search_entry.icursor("end")
+        var, entry = ((self.list_find_var, self.list_find_entry) if in_list
+                      else (self.filter_var, self.search_entry))
+        if picked and "\n" not in picked:
+            var.set(picked)
+        entry.focus_set()
+        entry.select_range(0, "end")
+        entry.icursor("end")
         return "break"
 
+    # -- Find in the mod list (section 3) -------------------------------------------
+
     def _highlight_list(self) -> int:
-        """Mark what you searched for in the mod list (section 3). Returns how many found."""
+        """Mark every match in the mod list. Returns how many."""
         text = self.list_text
         text.tag_remove("found", "1.0", "end")
         text.tag_remove("found_now", "1.0", "end")
-        query = self.filter_var.get().strip()
+        query = self.list_find_var.get().strip()
         if not query:
+            self.list_find_note.set("")
             return 0
         count, start = 0, "1.0"
         length = tk.IntVar()
@@ -54,45 +63,46 @@ class PlanMixin:
             count += 1
             start = end
         text.tag_raise("found_now")
+        self.list_find_note.set(f"{count} found" if count else "not found")
         return count
 
-    def find_next(self, event=None, back: bool = False):
-        """Enter in the search box: the next match in the list (Shift+Enter: the one before)."""
-        query = self.filter_var.get().strip()
-        if not query:
-            return "break"
+    def list_find_changed(self) -> None:
+        if self._highlight_list():
+            self.list_find_next(first=True)
+
+    def list_find_next(self, event=None, back: bool = False, first: bool = False):
+        """The next match in the mod list (back: the one before)."""
         text = self.list_text
         ranges = text.tag_ranges("found")
-        if not ranges:
+        if not ranges and self.list_find_var.get().strip():
             self._highlight_list()
             ranges = text.tag_ranges("found")
-        if ranges:
-            now = text.tag_ranges("found_now")
-            starts = [str(ranges[i]) for i in range(0, len(ranges), 2)]
-            ends = [str(ranges[i]) for i in range(1, len(ranges), 2)]
-            i = 0
-            if now:
-                cur = starts.index(str(now[0])) if str(now[0]) in starts else -1
-                i = (cur + (-1 if back else 1)) % len(starts)
-            elif back:
-                i = len(starts) - 1
-            text.tag_remove("found_now", "1.0", "end")
-            text.tag_add("found_now", starts[i], ends[i])
-            text.mark_set("insert", starts[i])
-            text.see(starts[i])
-            self.status_var.set(f"\u201c{query}\u201d: {i + 1} of {len(starts)} in the list "
-                                "(Enter: next, Shift+Enter: back, Esc: clear)")
-        # and the first matching mod in section 4
+        if not ranges:
+            return "break"
+        starts = [str(ranges[i]) for i in range(0, len(ranges), 2)]
+        ends = [str(ranges[i]) for i in range(1, len(ranges), 2)]
+        now = text.tag_ranges("found_now")
+        if first or not now or str(now[0]) not in starts:
+            i = len(starts) - 1 if back else 0
+        else:
+            i = (starts.index(str(now[0])) + (-1 if back else 1)) % len(starts)
+        text.tag_remove("found_now", "1.0", "end")
+        text.tag_add("found_now", starts[i], ends[i])
+        text.mark_set("insert", starts[i])
+        text.see(starts[i])
+        self.list_find_note.set(f"{i + 1} of {len(starts)}")
+        return "break"
+
+    def find_first_mod(self, event=None):
+        """Enter in the Search box: select the first mod shown."""
         rows = list(self._row_plan)
         if rows:
-            sel = self.tree.selection()
-            if not sel or sel[0] not in rows:
-                self.tree.selection_set(rows[0])
-                self.tree.see(rows[0])
+            self.tree.selection_set(rows[0])
+            self.tree.focus(rows[0])
+            self.tree.see(rows[0])
         return "break"
 
     def _filter_changed(self) -> None:
-        self._highlight_list()
         if getattr(self, "_filter_job", None):
             self.root.after_cancel(self._filter_job)
         self._filter_job = self.root.after(250, self._fill_tree)  # wait for a pause in typing
@@ -142,6 +152,9 @@ class PlanMixin:
         query = self.filter_var.get().strip() if hasattr(self, "filter_var") else ""
         mods_shown = 0
         section = None
+        # Worked out once, not once per mod (that was slow with hundreds of mods).
+        all_warns = self.compat.warnings() if self.compat else {}
+        all_suggested = self.compat.suggestions() if self.compat else {}
         for plan in self.plans:
             if not self._matches(plan, query):
                 continue
@@ -158,10 +171,10 @@ class PlanMixin:
                 status = "Choose files: " + plan.reason
             else:
                 status = plan.reason
-            warns = self.compat.warnings().get(id(plan)) if self.compat else None
+            warns = all_warns.get(id(plan))
             if warns and not plan.error:
                 status = "\u26a0 " + "; ".join(warns[:2]) + " \u00b7 " + status
-            suggested = self.compat.suggestions().get(id(plan), {}) if self.compat else {}
+            suggested = all_suggested.get(id(plan), {})
             author = f"  by {plan.mod.author}" if plan.mod and plan.mod.author else ""
             row = self.tree.insert("", "end", text=f"{plan.title}{author}", open=plan.needs_choice,
                                    values=("", "", plan.mod.version if plan.mod else "", "", status),
@@ -434,8 +447,9 @@ class PlanMixin:
         dlg.wait_window()
         if report:  # suggested patches unticked in the window stay unticked
             declined = self.__dict__.setdefault("patch_declined", set())
+            suggested = report.suggestions()
             for plan in plans:
-                for fid in report.suggestions().get(id(plan), {}):
+                for fid in suggested.get(id(plan), {}):
                     (declined.discard if fid in plan.selected else declined.add)(self._patch_key(plan, fid))
         self._fill_tree()
         if self.lookup_if_added():  # requirements were added from the window: look them up

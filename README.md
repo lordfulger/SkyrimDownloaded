@@ -77,6 +77,7 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
    - It searches your drives a few folders deep for `ModOrganizer.exe`, `Vortex.exe` and the marker file Vortex keeps in its downloads folder. This step stops after a minute.
 3. **Your Skyrim:** pick your game version, or press **Detect** to read it from your `SkyrimSE.exe` (see below).
 4. **Mod list:** open a `.txt` file, or type or paste links into the box. Then press **Look up mods**.
+   - **Find** above the box (or **Ctrl+F** while you're in the list) marks every match in the list. **Enter** or **▼** goes to the next one, **Shift+Enter** or **▲** to the one before, **Esc** clears it.
 5. **Choose options:** for every mod with more than one file, a window steps you through them one at a time. Tick the files you want.
    - **Next** chooses the ticked files and moves on. **Back** goes to the previous mod without choosing anything for the one you're on, unless you changed its ticks.
    - **Done** pauses. The mod on screen isn't chosen for you unless you changed its ticks. Press **Choose options…** later and it carries on at the first mod still waiting, with **Back** for the ones before it. Your place is kept even if you close the app.
@@ -86,7 +87,7 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
    - Warnings at the top ("needs …", "may conflict with …") link to that mod's Nexus page: click the name. After "needs …" it says whether that mod will be downloaded: **✓ in your list**, **Add to list** if it isn't in your list, or **Include it** if it's in your list but left out.
    - In the main list, tick or untick a file by clicking its box or double-clicking it. **Choose options…** opens the window again.
    - **Click a mod** to see its Nexus page in the panel on the right: its picture, author, version, last update, endorsements, downloads, summary and full description. The panel also shows its requirements (in your list or not) and its links with your other mods. Click a file to see that file's details.
-   - **Search** (or **Ctrl+F**) filters the list by mod name, author, your note or file name. It also marks the matches in your mod list (section 3): **Enter** jumps to the next one, **Shift+Enter** to the one before, **Esc** clears the search. Text you've selected in the mod list goes into the search box when you press Ctrl+F.
+   - **Search** (or **Ctrl+F**) filters the mods by name, author, your note or file name. **Enter** selects the first mod shown, **Esc** clears it.
    - **Bulk actions ▾** applies one change to every mod shown (all of them, or just the ones matching the search):
      - tick all suggested patches
      - leave out every optional file

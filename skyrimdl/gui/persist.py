@@ -117,6 +117,8 @@ class PersistMixin:
         if self.list_text.edit_modified():
             self.list_text.edit_modified(False)
             self.save_session()
+            if getattr(self, "list_find_var", None) is not None and self.list_find_var.get().strip():
+                self._highlight_list()  # keep the Find marks right as the list changes
 
     def _restore_session(self) -> None:
         restored = session.load(self.session_file)

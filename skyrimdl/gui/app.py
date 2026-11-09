@@ -204,6 +204,27 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.refresh_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(bar, text="Refresh from Nexus", variable=self.refresh_var).pack(side="right")
         list_label.pack(side="left", padx=8, fill="x", expand=True)  # last: gets the space that's left
+        # Find in the list
+        lfind = ttk.Frame(lst)
+        lfind.pack(fill="x", padx=6, pady=(0, 4))
+        ttk.Label(lfind, text="Find:").pack(side="left")
+        self.list_find_var = tk.StringVar()
+        self.list_find_entry = ttk.Entry(lfind, textvariable=self.list_find_var, width=34)
+        self.list_find_entry.pack(side="left", padx=6)
+        ttk.Button(lfind, text="\u25B2", width=3,
+                   command=lambda: self.list_find_next(back=True)).pack(side="left")
+        ttk.Button(lfind, text="\u25BC", width=3,
+                   command=lambda: self.list_find_next()).pack(side="left", padx=(2, 0))
+        ttk.Button(lfind, text="\u2715", width=3,
+                   command=lambda: self.list_find_var.set("")).pack(side="left", padx=(2, 0))
+        self.list_find_note = tk.StringVar()
+        ttk.Label(lfind, textvariable=self.list_find_note, style="Muted.TLabel").pack(side="left", padx=6)
+        ttk.Label(lfind, text="Enter: next   Shift+Enter: back   Esc: clear",
+                  style="Muted.TLabel").pack(side="right")
+        self.list_find_var.trace_add("write", lambda *a: self.list_find_changed())
+        self.list_find_entry.bind("<Return>", lambda e: self.list_find_next())
+        self.list_find_entry.bind("<Shift-Return>", lambda e: self.list_find_next(back=True))
+        self.list_find_entry.bind("<Escape>", lambda e: (self.list_find_var.set(""), self.list_text.focus_set()))
         box = ttk.Frame(lst)
         box.pack(fill="both", expand=True, padx=6, pady=(0, 6))
         self.list_text = tk.Text(box, height=5, wrap="none", undo=True, relief="flat",
@@ -249,13 +270,13 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         search = ttk.Entry(find, textvariable=self.filter_var, width=34)
         search.pack(side="left", padx=6)
         self.search_entry = search
-        search.bind("<Return>", self.find_next)
-        search.bind("<Shift-Return>", lambda e: self.find_next(e, back=True))
+        search.bind("<Return>", self.find_first_mod)
         search.bind("<Escape>", lambda e: self.filter_var.set(""))
-        # Ctrl+F: search (the list in section 3 and the mods in section 4)
+        # Ctrl+F: the Find box of section 3 when you're in the list, otherwise this Search box
         for seq in ("<Control-f>", "<Control-F>"):
             self.root.bind_all(seq, self.find)
             self.list_text.bind(seq, self.find)  # before the text box's own Ctrl+F
+            self.list_find_entry.bind(seq, self.find)
         self.filter_var.trace_add("write", lambda *a: self._filter_changed())
         ttk.Button(find, text="\u2715", width=3, command=lambda: self.filter_var.set("")).pack(side="left")
         bulk_btn = ttk.Menubutton(find, text="Bulk actions \u25be")
@@ -492,7 +513,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         else:
             webbrowser.open(folder.as_uri())
 
-    LIST_MIN = 130  # pixels: the mod list never gets squeezed below this
+    LIST_MIN = 160  # pixels: the mod list never gets squeezed below this
 
     def _place_sash(self) -> None:
         """Put the divider between the mod list and the files at its share of the height."""

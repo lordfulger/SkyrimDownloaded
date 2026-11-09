@@ -119,8 +119,9 @@ class ToolsMixin:
         review.wait_window()
         if review.choice == "review":
             to_review = report.plans_to_review()
+            suggested = report.suggestions()
             for plan in to_review:  # tick the suggested patches; you can untick them
-                for fid in report.suggestions().get(id(plan), {}):
+                for fid in suggested.get(id(plan), {}):
                     if fid not in plan.selected:
                         plan.selected.append(fid)
                         plan.reason = "suggested patch ticked - check it"

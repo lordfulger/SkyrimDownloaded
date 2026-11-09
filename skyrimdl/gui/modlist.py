@@ -203,25 +203,42 @@ class ListMixin:
 
     def add_requirement_to_list(self, url: str, needed_by: str) -> bool:
         """Add a required mod to the list (looked up once the current window closes)."""
-        entries, _ = parse_list(url, self.settings.game)
-        if not entries or (entries[0].game, entries[0].mod_id) in self._listed_mods():
-            return False
+        added = self.add_to_list([(url, f"required by {needed_by[:80]}")], "# Added requirements")
+        if added:
+            self.declined.add(url)
+            self._pending_lookup = True
+            log.info("Added requirement %s (needed by %s)", url, needed_by)
+        return bool(added)
+
+    def add_to_list(self, items: list, header: str) -> int:
+        """Add mods (url, comment) to the end of the list under ``header``; ones already in
+        the list are left out. Returns how many were added."""
+        listed = self._listed_mods()
+        new = []
+        for url, comment in items:
+            entries, _ = parse_list(url, self.settings.game)
+            if entries and (entries[0].game, entries[0].mod_id) not in listed:
+                listed.add((entries[0].game, entries[0].mod_id))
+                new.append((url, comment))
+        if not new:
+            return 0
         body = self.list_text.get("1.0", "end-1c").rstrip("\n")
-        if "# Added requirements" not in body:
-            body += "\n\n# Added requirements"
-        body += f"\n{url}    # required by {needed_by[:80]}"
+        if header not in body:
+            body += f"\n\n{header}"
+        for url, comment in new:
+            body += f"\n{url}    # {comment}" if comment else f"\n{url}"
         self.list_text.delete("1.0", "end")
         self.list_text.insert("1.0", body + "\n")
+        self.list_text.see("end")
         if self.list_path and getattr(self, "_list_was_saved", False):
             try:
                 self.list_path.write_text(self.list_text.get("1.0", "end-1c"), encoding="utf-8")
             except OSError:
                 pass
-        self.declined.add(url)
-        self._pending_lookup = True
-        self.status_var.set(f"Added {url.rsplit('/', 1)[-1]} to the list - it's looked up next.")
-        log.info("Added requirement %s (needed by %s)", url, needed_by)
-        return True
+        names = ", ".join(u.rstrip("/").rsplit("/", 1)[-1] for u, _ in new[:3])
+        self.status_var.set(f"Added {len(new)} mod(s) to the list ({names}{'...' if len(new) > 3 else ''}) "
+                            "- they're looked up next.")
+        return len(new)
 
     def lookup_if_added(self) -> bool:
         """Look the list up again if requirements were added (cheap: the rest is saved)."""

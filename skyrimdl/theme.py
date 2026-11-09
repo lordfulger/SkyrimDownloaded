@@ -126,6 +126,11 @@ class Theme:
                     arrowcolor=c["fg"], lightcolor=c["button"], darkcolor=c["button"])
         s.map("TScrollbar", background=[("active", c["button_hover"])])
         s.configure("TSeparator", background=c["border"])
+        s.configure("TNotebook", background=c["bg"], bordercolor=c["border"], tabmargins=(2, 4, 2, 0))
+        s.configure("TNotebook.Tab", background=c["button"], foreground=c["fg"], bordercolor=c["border"],
+                    lightcolor=c["button"], padding=(10, 4))
+        s.map("TNotebook.Tab", background=[("selected", c["accent"]), ("active", c["button_hover"])],
+              foreground=[("selected", "#ffffff")], lightcolor=[("selected", c["accent"])])
         # The drop-down list of a combobox is a plain Tk listbox.
         for pattern, value in (("*TCombobox*Listbox.background", c["field"]),
                                ("*TCombobox*Listbox.foreground", c["fg"]),

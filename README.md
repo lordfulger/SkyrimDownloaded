@@ -144,6 +144,20 @@ Many mods offer separate files for different versions of the game. SSE Engine Fi
 - **Changing the version later:** files are picked again right away. Mods where you'd already picked a file for the old version are highlighted for you to check.
 - **Command line:** `--game-version 1.6.1170` (or `any`) and `--store gog`. `detect` shows the Skyrim installs it finds.
 
+## Discover mods (on the side)
+
+**Discover ▸** (above the list of mods) opens a panel on the right. It stays open next time.
+
+**For your list:** **Find suggestions** looks on Nexus for mods made for the mods in your list:
+- **Patches between your mods:** mods that list two or more of your mods as requirements (and nothing you don't have) - almost always a patch between them.
+- **Add-ons for your mods:** mods made for one of them.
+- Only mods whose Nexus requirements are all in your list are shown. Translations, removed mods and (unless you tick Adult in Browse) adult mods are left out. Very common requirements like SkyUI or SKSE are skipped as a source (thousands of mods need them).
+- **Add to list** (Ctrl+click to pick several), **Add all patches**, **Open page**, or **Hide** (not suggested again). Added mods go under `# Suggested patches` / `# Added from Discover` at the end of the list and are looked up a few seconds later.
+- **Add patches by themselves:** when ticked, patches between your mods are added to the list as soon as they're found.
+- The first search takes a few minutes for a big list; the answers are saved for a week.
+
+**Browse Nexus:** the most endorsed, most downloaded, recently updated or newest mods over the last 24 hours, week, month, 3 months, year or all time, and a search box. ✓ marks mods already in your list. **More** loads the next page.
+
 ## Installing everything in MO2: collections for MO2, from your own list
 
 Tick **Install after download** in step 2 and press **Start downloads**. Then:

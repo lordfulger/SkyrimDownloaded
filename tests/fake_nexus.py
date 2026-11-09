@@ -268,6 +268,10 @@ def _post(self):
             return self._json(401, {"message": "Please provide a valid API Key"})
         return self._json(200, {"message": "ok", "status": "Endorsed"})
     body = json.loads(raw or b"{}")
+    if self.server.state.get("old_api") is None:  # the current API unless a test asks for the old one
+        answered = _post_v2(self, body) if not self.server.state.get("graphql_down") else None
+        if answered is not None:
+            return answered
     if self.server.state.get("graphql_down"):
         return self._json(500, {"errors": [{"message": "down"}]})
     if "collectionRevision" in body.get("query", ""):
@@ -283,6 +287,58 @@ def _post(self):
             return self._json(200, {"errors": [{"message": "Cannot query field dlcRequirements"}], "data": None})
         result["dlcRequirements"] = DLC_REQUIREMENTS.get(mod_id, [])
     return self._json(200, {"data": {"modRequirements": result}})
+
+
+def _discover_node(mid):
+    m = DISCOVER_MODS[mid]
+    return {"modId": mid, "name": m["name"], "author": "someone", "endorsements": m["end"], "downloads": m["end"] * 10,
+            "createdAt": "2026-10-01T00:00:00Z", "updatedAt": "2026-11-01T00:00:00Z", "category": "Patches",
+            "adultContent": m.get("adult", False), "status": "published", "summary": "A mod.",
+            "thumbnailUrl": "", "version": "1.0",
+            "modRequirements": {"nexusRequirements": {"nodes": [
+                {"modId": str(r), "modName": "x", "externalRequirement": False} for r in m["requires"]]}}}
+
+
+def _post_v2(self, body):
+    """Nexus's current API: requirements hang off mod(modId, gameId); mods() searches."""
+    query, var = body.get("query", ""), body.get("variables", {})
+    if "modsRequiringThisMod" in query:
+        mid = int(var.get("modId"))
+        nodes = [{"modId": str(k), "modName": v["name"], "gameId": "1704"}
+                 for k, v in DISCOVER_MODS.items() if mid in v["requires"]]
+        page = nodes[var.get("offset", 0):var.get("offset", 0) + var.get("count", 20)]
+        return self._json(200, {"data": {"mod": {"modRequirements": {
+            "modsRequiringThisMod": {"totalCount": len(nodes), "nodes": page}}}}})
+    if "mods(filter" in query:
+        filters = var.get("f") or []
+        if "op: OR" in query:  # details of these mods
+            ids = [int(f["modId"][0]["value"]) for f in filters if "modId" in f]
+            nodes = [_discover_node(i) for i in ids if i in DISCOVER_MODS]
+            return self._json(200, {"data": {"mods": {"totalCount": len(nodes), "nodes": nodes}}})
+        self.server.state.setdefault("browse", []).append(var)
+        adult = not any(f.get("adultContent") == {"value": False} for f in filters)
+        nodes = [_discover_node(i) for i in DISCOVER_MODS if adult or not DISCOVER_MODS[i].get("adult")]
+        nodes.sort(key=lambda n: -n["endorsements"])
+        off, cnt = var.get("offset", 0), var.get("count", 20)
+        return self._json(200, {"data": {"mods": {"totalCount": len(nodes), "nodes": nodes[off:off + cnt]}}})
+    if "mod(modId" in query:  # requirements
+        mid = int(var.get("modId"))
+        result = {"nexusRequirements": {"nodes": REQUIREMENTS.get(mid, [])}}
+        if "dlcRequirements" in query:
+            if self.server.state.get("dlc_unsupported"):
+                return self._json(200, {"errors": [{"message": "Cannot query field dlcRequirements"}], "data": None})
+            result["dlcRequirements"] = DLC_REQUIREMENTS.get(mid, [])
+        return self._json(200, {"data": {"mod": {"modRequirements": result}}})
+    return None
+
+
+DISCOVER_MODS = {
+    5001: {"name": "SkyUI - USSEP Patch", "requires": [12604, 266], "end": 900},
+    5002: {"name": "Cool SkyUI Addon", "requires": [12604], "end": 500},
+    5003: {"name": "Needs Something Else", "requires": [12604, 424242], "end": 800},
+    5004: {"name": "SkyUI Russian Translation", "requires": [12604], "end": 50},
+    5005: {"name": "Spicy USSEP Addon", "requires": [266], "end": 700, "adult": True},
+}
 
 
 Handler.do_POST = _post

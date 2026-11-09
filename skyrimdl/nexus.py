@@ -46,6 +46,23 @@ query collectionRevision($slug: String, $domainName: String, $revision: Int) {
 # The same without DLC, in case Nexus ever stops accepting that part.
 REQUIREMENTS_QUERY_NO_DLC = REQUIREMENTS_QUERY.replace(
     "    dlcRequirements { gameExpansion { id name } notes }\n", "")
+# Nexus's current form: requirements hang off the mod (looked up by game id).
+MOD_REQUIREMENTS_QUERY = """
+query modReqs($modId: ID!, $gameId: ID!) {
+  mod(modId: $modId, gameId: $gameId) {
+    modRequirements {
+      dlcRequirements { gameExpansion { id name } notes }
+      nexusRequirements(count: 50) {
+        nodes { id gameId modId modName notes url externalRequirement }
+      }
+    }
+  }
+}
+"""
+MOD_REQUIREMENTS_QUERY_NO_DLC = MOD_REQUIREMENTS_QUERY.replace(
+    "      dlcRequirements { gameExpansion { id name } notes }\n", "")
+#: Nexus's numeric game ids (the v2 API needs them to look up a mod).
+GAME_IDS = {"skyrimspecialedition": 1704, "skyrim": 110, "skyrimvr": 2531}
 APP_NAME = "SkyrimDownloaded"
 USER_AGENT = f"{APP_NAME}/{__version__} (Python; mod list downloader)"
 
@@ -382,8 +399,16 @@ class NexusClient:
         if self.cancel is not None and self.cancel.is_set():
             return None
         data = None
-        for query in (REQUIREMENTS_QUERY, REQUIREMENTS_QUERY_NO_DLC):
-            data = self._graphql(query, {"modId": int(mod_id), "gameDomainName": game}, "modRequirements")
+        attempts = []
+        if game in GAME_IDS:
+            ids = {"modId": str(int(mod_id)), "gameId": str(GAME_IDS[game])}
+            attempts += [(MOD_REQUIREMENTS_QUERY, ids, "mod"), (MOD_REQUIREMENTS_QUERY_NO_DLC, ids, "mod")]
+        old = {"modId": int(mod_id), "gameDomainName": game}  # the older form of the API
+        attempts += [(REQUIREMENTS_QUERY, old, "modRequirements"), (REQUIREMENTS_QUERY_NO_DLC, old, "modRequirements")]
+        for query, variables, field_name in attempts:
+            data = self._graphql(query, variables, field_name)
+            if data is not None and field_name == "mod":
+                data = data.get("modRequirements") if isinstance(data.get("modRequirements"), dict) else None
             if data is not None:
                 break
         if data is None:
@@ -392,12 +417,19 @@ class NexusClient:
         for node in ((data.get("nexusRequirements") or {}).get("nodes") or []):
             try:
                 mid = node.get("modId")
+                url = node.get("url") or ""
+                external = bool(node.get("externalRequirement"))
+                if mid in (None, "", 0, "0"):
+                    # An "outside" requirement that's really a Nexus mod page: treat it as that mod.
+                    m = re.search(r"nexusmods\.com/" + re.escape(game) + r"/mods/(\d+)", url)
+                    if m:
+                        mid, external = m.group(1), False
                 out.append(Requirement(
                     mod_id=int(mid) if mid not in (None, "", 0, "0") else None,
                     name=node.get("modName") or "?",
-                    url=node.get("url") or "",
+                    url=url,
                     notes=node.get("notes") or "",
-                    external=bool(node.get("externalRequirement")),
+                    external=external,
                 ))
             except (TypeError, ValueError, AttributeError):
                 continue

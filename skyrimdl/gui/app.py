@@ -10,9 +10,11 @@ from .modlist import ListMixin
 from .plan import PlanMixin
 from .tools import ToolsMixin
 from .downloads import DownloadMixin
+from .discover_panel import DiscoverMixin
 
 
-class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsMixin, DownloadMixin):
+class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsMixin, DownloadMixin,
+          DiscoverMixin):
     def __init__(self, root: tk.Tk, settings: Settings):
         self.root = root
         self.settings = settings
@@ -45,6 +47,9 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self._build()
         self.theme.apply()
         self._load_settings()
+        if self.settings.discover_open:  # it was open last time
+            self.settings.discover_open = False
+            self.root.after(600, self.toggle_discover)
         root.report_callback_exception = self._callback_error
         self._set_window_icon()
         # Tk must only ever be touched from this thread. Python's cycle collector can run on
@@ -180,9 +185,13 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         ttk.Label(game, textvariable=self.game_note_var, style="Muted.TLabel").pack(side="left", padx=8)
 
         # Sections 3 and 4 share the space; drag the bar between them to resize.
-        panes = ttk.PanedWindow(outer, orient="vertical")
-        panes.pack(fill="both", expand=True, **pad)
+        # ...and the Discover panel can open on their right.
+        self.hsplit = ttk.PanedWindow(outer, orient="horizontal")
+        self.hsplit.pack(fill="both", expand=True, **pad)
+        panes = ttk.PanedWindow(self.hsplit, orient="vertical")
+        self.hsplit.add(panes, weight=3)
         self.panes = panes
+        self.build_discover(self.hsplit)
         # The mod list gets a share of the space (a third to start with), set once the window
         # has its real size, and never less than a few lines.
         self.sash_fraction = 0.33
@@ -264,6 +273,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.updates_btn = ttk.Button(tools, text="Check for updates", command=self.check_for_updates)
         self.updates_btn.pack(side="left")
         ttk.Button(tools, text="Auto-pick\u2026", command=self.auto_pick_settings).pack(side="left", padx=4)
+        ttk.Button(tools, text="Discover \u25b8", command=self.toggle_discover).pack(side="right", padx=4)
         self.listcheck_btn = ttk.Button(tools, text="Check list", command=self.check_list)
         self.listcheck_btn.pack(side="left", padx=4)
         ttk.Button(tools, text="Open mod page", command=self.open_page).pack(side="left", padx=4)
@@ -739,6 +749,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
             handler = {
                 "clipboard-login": self._clipboard_login_done, "login-ok": self._login_ok,
                 "listcheck": self._listcheck_done,
+                "discover-browse": self._browse_done, "discover-suggest": self._suggest_done,
                 "login-retry": self._login_retry, "updates": self._updates_done,
                 "compat": self._compat_done, "games": self._games_found, "found": self._apply_found,
                 "requirements": self._requirements_done, "finished": self._finished,

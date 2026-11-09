@@ -45,6 +45,10 @@ class Settings:
     only_real_choices: bool = True  # ask only when there are several different main files
     prefer_words: str = ""          # comma-separated: "ESL, Desaturated"
     avoid_words: str = ""           # comma-separated: "Loose, Beta"
+    discover_open: bool = False     # the Discover panel on the side
+    auto_add_patches: bool = False  # add suggested patches between your mods by themselves
+    show_adult: bool = False        # adult mods in Discover
+    hidden_suggestions: list = field(default_factory=list)  # mod ids you hid
     texture_size: str = ""          # "1K", "2K", "4K", "8K"; blank = no preference
     check_app_updates: bool = True  # look for a newer SkyrimDownloaded once a day
     # The last login, so opening the app doesn't need to ask Nexus again (saves a request).

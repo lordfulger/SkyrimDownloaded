@@ -290,8 +290,14 @@ def _post(self):
 
 
 def _discover_node(mid):
+    if mid not in DISCOVER_MODS:  # a mod from the main fake data
+        m = MODS[mid]
+        return {"modId": mid, "uid": f"uid{mid}", "name": m["name"], "author": m.get("author", ""),
+                "endorsements": 1, "downloads": 1, "createdAt": "", "updatedAt": "", "category": "",
+                "adultContent": False, "status": "published", "summary": "", "thumbnailUrl": "", "version": "1",
+                "modRequirements": {"nexusRequirements": {"nodes": []}}}
     m = DISCOVER_MODS[mid]
-    return {"modId": mid, "name": m["name"], "author": "someone", "endorsements": m["end"], "downloads": m["end"] * 10,
+    return {"modId": mid, "uid": f"uid{mid}", "name": m["name"], "author": "someone", "endorsements": m["end"], "downloads": m["end"] * 10,
             "createdAt": "2026-10-01T00:00:00Z", "updatedAt": "2026-11-01T00:00:00Z", "category": "Patches",
             "adultContent": m.get("adult", False), "status": "published", "summary": "A mod.",
             "thumbnailUrl": "", "version": "1.0",
@@ -309,11 +315,19 @@ def _post_v2(self, body):
         page = nodes[var.get("offset", 0):var.get("offset", 0) + var.get("count", 20)]
         return self._json(200, {"data": {"mod": {"modRequirements": {
             "modsRequiringThisMod": {"totalCount": len(nodes), "nodes": page}}}}})
+    if "collectionsV2" in query:
+        uid = next(f["modUid"][0]["value"] for f in var.get("f") or [] if "modUid" in f)
+        mid = int(uid[3:])
+        nodes = [{"slug": c["slug"], "name": c["name"], "endorsements": 10, "adultContent": False,
+                  "latestPublishedRevision": {"modFiles": [
+                      {"optional": False, "file": {"modId": m, "mod": {"name": f"Mod {m}"}}} for m in c["mods"]]}}
+                 for c in COLLECTIONS if mid in c["mods"]]
+        return self._json(200, {"data": {"collectionsV2": {"nodes": nodes}}})
     if "mods(filter" in query:
         filters = var.get("f") or []
         if "op: OR" in query:  # details of these mods
             ids = [int(f["modId"][0]["value"]) for f in filters if "modId" in f]
-            nodes = [_discover_node(i) for i in ids if i in DISCOVER_MODS]
+            nodes = [_discover_node(i) for i in ids if i in DISCOVER_MODS or i in MODS]
             return self._json(200, {"data": {"mods": {"totalCount": len(nodes), "nodes": nodes}}})
         self.server.state.setdefault("browse", []).append(var)
         adult = not any(f.get("adultContent") == {"value": False} for f in filters)
@@ -332,7 +346,16 @@ def _post_v2(self, body):
     return None
 
 
+COLLECTIONS = [
+    {"slug": "c1", "name": "Pretty Setup", "mods": [12604, 266, 1000, 6001, 6002]},
+    {"slug": "c2", "name": "Lite Setup", "mods": [12604, 266, 6001, 6003]},
+    {"slug": "c3", "name": "Unrelated", "mods": [17230, 6002]},  # shares one mod: doesn't count
+]
+
 DISCOVER_MODS = {
+    6001: {"name": "Goes Well Mod", "requires": [424242], "end": 300},
+    6002: {"name": "Only Once Mod", "requires": [], "end": 200},
+    6003: {"name": "Another Once Mod", "requires": [], "end": 100},
     5001: {"name": "SkyUI - USSEP Patch", "requires": [12604, 266], "end": 900},
     5002: {"name": "Cool SkyUI Addon", "requires": [12604], "end": 500},
     5003: {"name": "Needs Something Else", "requires": [12604, 424242], "end": 800},

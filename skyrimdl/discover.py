@@ -30,7 +30,7 @@ PAGE = 80
 DETAILS_BATCH = 40
 MAX_SINGLE = 600  # add-on candidates (made for one of your mods) to look at
 
-_FIELDS = ("modId name author endorsements downloads createdAt updatedAt category adultContent "
+_FIELDS = ("modId uid name author endorsements downloads createdAt updatedAt category adultContent "
            "status summary thumbnailUrl version")
 BROWSE_QUERY = """
 query browse($f: [ModsFilter!], $s: [ModsSort!], $count: Int, $offset: Int) {
@@ -70,9 +70,14 @@ class Found:
     summary: str = ""
     thumbnail: str = ""
     version: str = ""
+    uid: str = ""
     # suggestions only
     kind: str = ""                                 # "patch" or "add-on"
     ties: list = field(default_factory=list)       # names of your mods it's made for
+    # "goes well with your list" only
+    score: float = 0.0
+    seen_in: list = field(default_factory=list)    # collections it's in (that share mods with you)
+    needs: list = field(default_factory=list)      # its requirements that aren't in your list
 
     @property
     def url(self) -> str:
@@ -84,7 +89,7 @@ class Found:
                    int(n.get("endorsements") or 0), int(n.get("downloads") or 0), str(n.get("createdAt") or ""),
                    str(n.get("updatedAt") or ""), str(n.get("category") or ""), bool(n.get("adultContent")),
                    str(n.get("status") or "published"), str(n.get("summary") or ""),
-                   str(n.get("thumbnailUrl") or ""), str(n.get("version") or ""))
+                   str(n.get("thumbnailUrl") or ""), str(n.get("version") or ""), str(n.get("uid") or ""))
 
 
 def browse(client, game: str, show: str, period: str, search: str = "", adult: bool = False,
@@ -168,6 +173,8 @@ def details(client, game: str, keys: list[tuple[int, int]], cache=None) -> dict[
             found = Found.from_node(game, n)
             reqs = (((n.get("modRequirements") or {}).get("nexusRequirements") or {}).get("nodes") or [])
             ids = [int(r["modId"]) for r in reqs if r.get("modId") not in (None, "0", 0) and not r.get("externalRequirement")]
+            names = {int(r["modId"]): str(r.get("modName") or "") for r in reqs if r.get("modId") not in (None, "0", 0)}
+            found.needs = [names.get(i, str(i)) for i in ids]  # all of them for now
             out[found.mod_id] = (found, ids)
             if cache is not None:
                 from dataclasses import asdict
@@ -218,9 +225,126 @@ def suggest(client, plans, cache=None, adult: bool = False, hidden=frozenset(), 
         if _LANG.search(found.name):
             continue  # translations
         found.ties = [listed[r] for r in sorted(reqs, key=lambda r: list(listed).index(r))]
+        found.needs = []  # everything it needs is in your list
         found.kind = "patch" if len(reqs) >= 2 else "add-on"
         out.append(found)
     out.sort(key=lambda f: (f.kind != "patch", -f.endorsements))
     patches = [f for f in out if f.kind == "patch"]
     addons = [f for f in out if f.kind != "patch"][:150]
     return patches + addons
+
+
+# -- mods that go well with your list (from Nexus Collections) ------------------------------
+
+COLLECTIONS_QUERY = """
+query similar($f: [CollectionsSearchFilter!], $count: Int) {
+  collectionsV2(filter: {filter: $f, op: AND}, sort: [{endorsements: {direction: DESC}}], count: $count) {
+    nodes { slug name endorsements adultContent
+            latestPublishedRevision { modFiles { optional file { modId mod { name } } } } }
+  }
+}"""
+SEEDS = 60          # how many of your mods to look for in collections
+PER_SEED = 8        # collections per mod (the most endorsed)
+MAX_COLLECTION = 1500  # bigger "everything" collections say little about taste
+
+
+def collections_with(client, game: str, uid: str, cache=None, count: int = PER_SEED) -> list[dict]:
+    """The most endorsed collections that have this mod: [{"slug", "name", "adult", "mods": {id: name},
+    "optional": [ids]}]."""
+    key = f"collections:{game}/{uid}"
+    if cache is not None:
+        saved = cache.get(key)
+        if saved is not None:
+            return saved
+    data = client._graphql(COLLECTIONS_QUERY, {"f": [{"modUid": [{"value": uid, "op": "EQUALS"}]},
+                                                     {"gameDomain": [{"value": game, "op": "EQUALS"}]}],
+                                               "count": count}, "collectionsV2")
+    if data is None:
+        return []
+    out = []
+    for n in data.get("nodes") or []:
+        files = ((n.get("latestPublishedRevision") or {}).get("modFiles") or [])
+        mods, optional = {}, []
+        for mf in files:
+            f = mf.get("file") or {}
+            if f.get("modId"):
+                mid = int(f["modId"])
+                mods[str(mid)] = str((f.get("mod") or {}).get("name") or "")
+                if mf.get("optional"):
+                    optional.append(mid)
+        out.append({"slug": n.get("slug"), "name": n.get("name") or "", "adult": bool(n.get("adultContent")),
+                    "endorsements": int(n.get("endorsements") or 0), "mods": mods, "optional": optional})
+    if cache is not None:
+        cache.put(key, out)
+    return out
+
+
+def goes_well(client, plans, cache=None, adult: bool = False, hidden=frozenset(), on_progress=None,
+              cancel=None, workers: int = 6, top: int = 120) -> list[Found]:
+    """Mods that collections using your mods also use, best first. A collection counts more
+    the more of your mods it has (relative to its size): people with your taste."""
+    import math
+    mods = [p for p in plans if not p.error and p.mod]
+    if not mods:
+        return []
+    game = mods[0].entry.game
+    gid = GAME_IDS.get(game, 0)
+    listed = {p.entry.mod_id for p in mods if p.entry.game == game}
+    # Seeds: mods spread over the whole list (so every part of it has a say).
+    pool = [p for p in mods if p.entry.game == game]
+    step = max(1, len(pool) // SEEDS)
+    seeds = pool[::step][:SEEDS]
+    info = details(client, game, [(gid, p.entry.mod_id) for p in seeds], cache)
+    uids = [info[p.entry.mod_id][0].uid for p in seeds if p.entry.mod_id in info and info[p.entry.mod_id][0].uid]
+    collections: dict = {}
+    done = 0
+
+    def one(uid):
+        if cancel is not None and cancel.is_set():
+            return []
+        return collections_with(client, game, uid, cache)
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        for found in ex.map(one, uids):
+            done += 1
+            if on_progress:
+                on_progress(done, len(uids))
+            for c in found:
+                if c["slug"] and (adult or not c["adult"]) and 0 < len(c["mods"]) <= MAX_COLLECTION:
+                    collections[c["slug"]] = c
+    if cancel is not None and cancel.is_set():
+        return []
+    scores: dict[int, float] = {}
+    seen: dict[int, list] = {}
+    names: dict[int, str] = {}
+    for c in collections.values():
+        ids = {int(k) for k in c["mods"]}
+        overlap = len(ids & listed)
+        if overlap < 2:
+            continue  # shares too little with your list to say anything
+        weight = overlap / math.sqrt(len(ids))
+        optional = set(c["optional"])
+        for mid in ids - listed:
+            if mid in hidden:
+                continue
+            scores[mid] = scores.get(mid, 0.0) + weight * (0.5 if mid in optional else 1.0)
+            seen.setdefault(mid, []).append(c["name"])
+            names.setdefault(mid, c["mods"].get(str(mid), ""))
+    best = sorted(scores, key=lambda m: -scores[m])[: top * 2]
+    info = details(client, game, [(gid, m) for m in best], cache)
+    out = []
+    for mid in best:
+        if mid not in info:
+            continue
+        found, reqs = info[mid]
+        if found.status != "published" or (found.adult and not adult) or _LANG.search(found.name):
+            continue
+        if len(seen[mid]) < 2:
+            continue  # in just one collection: not much of a sign
+        found.score = round(scores[mid], 2)
+        found.seen_in = sorted(set(seen[mid]))
+        found.needs = [n for i, n in zip(reqs, found.needs) if i not in listed]
+        out.append(found)
+        if len(out) >= top:
+            break
+    return out

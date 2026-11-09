@@ -58,7 +58,29 @@ class DiscoverMixin:
         ttk.Button(btns, text="Add all patches", command=self._add_all_patches).pack(side="left", padx=4)
         ttk.Button(btns, text="Open page",
                    command=lambda: self._open_selected(self.suggest_tree, self._suggest_rows)).pack(side="left")
-        ttk.Button(btns, text="Hide", command=self._hide_suggestion).pack(side="left", padx=4)
+        ttk.Button(btns, text="Hide", command=lambda: self._hide_suggestion(self.suggest_tree, self._suggest_rows)
+                   ).pack(side="left", padx=4)
+
+        # Goes well with your list (from collections)
+        gw = ttk.Frame(tabs)
+        tabs.add(gw, text="Goes well with")
+        row = ttk.Frame(gw)
+        row.pack(fill="x", pady=4)
+        self.goes_btn = ttk.Button(row, text="Find mods that go well", command=self.find_goes_well)
+        self.goes_btn.pack(side="left")
+        ttk.Label(gw, text="From Nexus Collections that use many of your mods: the other mods those "
+                           "collections have in common. Higher up = in more collections like your list.",
+                  style="Muted.TLabel", wraplength=330).pack(anchor="w")
+        self._goes_rows: dict[str, discover.Found] = {}
+        self.goes_tree = self._discover_tree(gw, (("in", "In", 52), ("end", "\u2665", 52)))
+        btns = ttk.Frame(gw)
+        btns.pack(fill="x", pady=4)
+        ttk.Button(btns, text="Add to list", style="Accent.TButton",
+                   command=lambda: self._add_selected(self.goes_tree, self._goes_rows)).pack(side="left")
+        ttk.Button(btns, text="Open page",
+                   command=lambda: self._open_selected(self.goes_tree, self._goes_rows)).pack(side="left", padx=4)
+        ttk.Button(btns, text="Hide", command=lambda: self._hide_suggestion(self.goes_tree, self._goes_rows)
+                   ).pack(side="left")
 
         # Browse Nexus
         br = ttk.Frame(tabs)
@@ -111,8 +133,7 @@ class DiscoverMixin:
         sb.pack(side="right", fill="y")
         AutoScroll(tree)
         tree.bind("<<TreeviewSelect>>", lambda e, t=tree: self._discover_selected(t))
-        tree.bind("<Double-1>", lambda e, t=tree: self._open_selected(
-            t, self._suggest_rows if t is self.suggest_tree else self._found_rows))
+        tree.bind("<Double-1>", lambda e, t=tree: self._open_selected(t, self._rows_of(t)))
         return tree
 
     def toggle_discover(self) -> None:
@@ -233,13 +254,57 @@ class DiscoverMixin:
             if n:
                 self.discover_note.set(self.discover_note.get() + f" Added {n} patch(es) to your list.")
 
+    # -- goes well with your list -------------------------------------------------------
+
+    def find_goes_well(self) -> None:
+        if self.client is None:
+            self.discover_note.set("Log in first.")
+            return
+        if not self.plans:
+            self.discover_note.set("Look up the mods in your list first.")
+            return
+        plans, client = list(self.plans), self.client
+        hidden = frozenset(int(x) for x in self.settings.hidden_suggestions or [])
+        adult = self.adult_var.get()
+        cancel = self.new_operation()
+        self.goes_btn.configure(state="disabled")
+        self.discover_note.set("Looking through Nexus Collections that use your mods\u2026")
+
+        def work():
+            found = discover.goes_well(
+                client, plans, nexuscache.shared(), adult=adult, hidden=hidden, cancel=cancel,
+                on_progress=lambda d, t: self.events.put(("status", f"Goes well with: read collections for {d} of {t} of your mods")))
+            nexuscache.shared().flush()
+            self.events.put(("discover-goes", found))
+        self._background(work)
+
+    def _goes_done(self, found) -> None:
+        self.goes_btn.configure(state="normal")
+        tree = self.goes_tree
+        tree.delete(*tree.get_children())
+        self._goes_rows.clear()
+        for f in found:
+            text = f.name + ("  (needs more)" if f.needs else "")
+            row = tree.insert("", "end", text=text, values=(len(f.seen_in), _count(f.endorsements)))
+            self._goes_rows[row] = f
+        self.discover_note.set(f"{len(found)} mods that collections like your list also use."
+                               if found else "Nothing found: no collections share enough mods with your list.")
+        self.status_var.set(self.discover_note.get())
+
     # -- shared --------------------------------------------------------------------------
 
     def _selected_found(self, tree, rows) -> list:
         return [rows[r] for r in tree.selection() if r in rows]
 
+    def _rows_of(self, tree) -> dict:
+        if tree is self.suggest_tree:
+            return self._suggest_rows
+        if tree is getattr(self, "goes_tree", None):
+            return self._goes_rows
+        return self._found_rows
+
     def _discover_selected(self, tree) -> None:
-        rows = self._suggest_rows if tree is self.suggest_tree else self._found_rows
+        rows = self._rows_of(tree)
         picked = self._selected_found(tree, rows)
         if not picked:
             self.discover_info.set("")
@@ -250,6 +315,11 @@ class DiscoverMixin:
                 f"{f.downloads:,} downloads · updated {_date(f.updated)}"]
         if f.ties:
             bits.append(("Patch for: " if f.kind == "patch" else "Add-on for: ") + ", ".join(f.ties))
+        if f.seen_in:
+            more = f" and {len(f.seen_in) - 3} more" if len(f.seen_in) > 3 else ""
+            bits.append(f"In {len(f.seen_in)} collections like your list: " + ", ".join(f.seen_in[:3]) + more)
+        if f.needs:
+            bits.append("Needs (not in your list): " + ", ".join(f.needs[:4]))
         if f.summary:
             bits.append(f.summary[:300])
         self.discover_info.set("\n".join(bits))
@@ -274,7 +344,8 @@ class DiscoverMixin:
         items = [(f.url, (f"patch for {' + '.join(f.ties)}" if f.kind == "patch" else
                           f"add-on for {f.ties[0]}" if f.ties else f.name)[:120]) for f in found]
         n = self.add_to_list(items, header)
-        for tree, rows in ((self.suggest_tree, self._suggest_rows), (self.browse_tree, self._found_rows)):
+        for tree, rows in ((self.suggest_tree, self._suggest_rows), (self.browse_tree, self._found_rows),
+                           (self.goes_tree, self._goes_rows)):
             for row, f in rows.items():
                 if f in found and tree.exists(row) and not tree.item(row, "text").startswith("✓"):
                     tree.item(row, text="✓ " + tree.item(row, "text"))
@@ -297,14 +368,14 @@ class DiscoverMixin:
                 self.lookup()
         self._discover_lookup_job = self.root.after(4000, go)
 
-    def _hide_suggestion(self) -> None:
-        picked = self._selected_found(self.suggest_tree, self._suggest_rows)
+    def _hide_suggestion(self, tree, rows) -> None:
+        picked = self._selected_found(tree, rows)
         hidden = list(self.settings.hidden_suggestions or [])
-        for row in list(self.suggest_tree.selection()):
-            f = self._suggest_rows.pop(row, None)
+        for row in list(tree.selection()):
+            f = rows.pop(row, None)
             if f:
                 hidden.append(f.mod_id)
-                self.suggest_tree.delete(row)
+                tree.delete(row)
         self.settings.hidden_suggestions = hidden
         self._save_settings()
         if picked:

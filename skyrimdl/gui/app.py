@@ -750,6 +750,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                 "clipboard-login": self._clipboard_login_done, "login-ok": self._login_ok,
                 "listcheck": self._listcheck_done,
                 "discover-browse": self._browse_done, "discover-suggest": self._suggest_done,
+                "discover-goes": self._goes_done,
                 "login-retry": self._login_retry, "updates": self._updates_done,
                 "compat": self._compat_done, "games": self._games_found, "found": self._apply_found,
                 "requirements": self._requirements_done, "finished": self._finished,

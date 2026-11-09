@@ -156,6 +156,8 @@ Many mods offer separate files for different versions of the game. SSE Engine Fi
 - **Add patches by themselves:** when ticked, patches between your mods are added to the list as soon as they're found.
 - The first search takes a few minutes for a big list; the answers are saved for a week.
 
+**Goes well with:** **Find mods that go well** looks at Nexus Collections that use your mods (the most endorsed collections for 60 mods spread over your list). Collections that share at least two of your mods count, the more of your mods (for their size) the more they count, and the mods they have in common that you don't are listed, best first. "In" is how many such collections have it; a mod in only one isn't shown. Click one to see which collections and whether it needs anything that's not in your list (marked "needs more"; missing requirements are offered once it's looked up). Takes about a minute the first time; saved for a week.
+
 **Browse Nexus:** the most endorsed, most downloaded, recently updated or newest mods over the last 24 hours, week, month, 3 months, year or all time, and a search box. ✓ marks mods already in your list. **More** loads the next page.
 
 ## Installing everything in MO2: collections for MO2, from your own list

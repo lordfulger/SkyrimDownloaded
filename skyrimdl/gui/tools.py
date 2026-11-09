@@ -57,6 +57,14 @@ class ToolsMixin:
                 on_progress=lambda d, t: d % 10 == 0 and self.events.put(
                     ("status", f"Reading the file lists of the picked files: {d} of {t}")))
             installed = self._installed_in_mo2(target) if target else {}
+            exact = None
+            if target is not None and target.name == "Mod Organizer 2" and target.instance_dir:
+                from .. import mo2import, plugincount
+                try:
+                    exact = plugincount.count(target.instance_dir, target.mods_dir(),
+                                              mo2import.current_profile(target.instance_dir))
+                except Exception:
+                    log.exception("counting the MO2 profile's plugins")
             result = {
                 "plugins": plugins,
                 "duplicates": listcheck.duplicates(list_text, self.settings.game),
@@ -64,6 +72,7 @@ class ToolsMixin:
                 "sizes": listcheck.size_by_texture(plans),
                 "textured": listcheck.textured_mods(plans),
                 "installed": installed,
+                "exact": exact,
                 "space": self._space_for(target, jobs_for(plans), install) if target else [],
             }
             cache.flush()

@@ -40,8 +40,13 @@ class Target:
     """A place downloads go, and a mod manager that can take them."""
 
     name = "mod manager"
-    #: How long to wait between links sent to the manager, so it isn't flooded.
-    handoff_gap = 1.5
+    #: Shortest gap between links sent to the manager.
+    handoff_gap = 0.25
+    #: Each link starts the manager's exe, which passes it to the running manager and exits.
+    #: Waiting for that (up to this long) paces the links to how fast the manager takes them.
+    handoff_wait = 15.0
+    #: How many downloads to keep going in the manager at once (handoff mode).
+    in_flight = 4
 
     def __init__(self, game: str):
         self.game = game
@@ -116,8 +121,28 @@ class Target:
                       "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
             if IS_WINDOWS:
                 kwargs["creationflags"] = 0x00000008  # DETACHED_PROCESS
-            subprocess.Popen(args, **kwargs)
+            proc = subprocess.Popen(args, **kwargs)
         except OSError as err:
-            raise ManagerError(f"Couldn't start {args[0]}: {err}") from None
-        finally:
             self._last_handoff = time.monotonic()
+            raise ManagerError(f"Couldn't start {args[0]}: {err}") from None
+        if self.handoff_wait:
+            try:  # it hands the link to the running manager and exits; the first one may BE the manager
+                proc.wait(timeout=self.handoff_wait)
+            except subprocess.TimeoutExpired:
+                pass
+        self._last_handoff = time.monotonic()
+
+    def download_state(self, option: FileOption) -> str:
+        """Where the manager is with a file it was sent: "done" (in the downloads folder),
+        "downloading" (an .unfinished file is there) or "" (not started yet / not seen)."""
+        try:
+            folder = self.downloads_dir()
+        except ManagerError:
+            return ""
+        from ..downloader import safe_file_name
+        name = safe_file_name(option.file_name)
+        if (folder / (name + ".unfinished")).exists():
+            return "downloading"
+        if (folder / name).is_file():
+            return "done"
+        return ""

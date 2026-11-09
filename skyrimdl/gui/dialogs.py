@@ -756,6 +756,21 @@ class ListCheckDialog(tk.Toplevel):
         # 1. Plugins
         p = result["plugins"]
         put("Plugins\n", "h")
+        exact = result.get("exact")
+        if exact is not None and (exact.regular or exact.light):
+            from .. import plugincount
+            close = exact.regular_count > plugincount.REGULAR_LIMIT - 10
+            put(f"Your MO2 profile \u201c{exact.profile}\u201d right now: {exact.regular_count} regular plugins "
+                f"(limit {plugincount.REGULAR_LIMIT}) and {exact.light_count} light ones "
+                f"(limit {plugincount.LIGHT_LIMIT}).\n", "warn" if close else "good")
+            put("Exact: read from MO2's plugin list and each plugin's own header, the way the game counts.", "meta")
+            if exact.off:
+                put(f" {exact.off} more are switched off.", "meta")
+            put("\n")
+            if exact.missing:
+                put(f"Switched on in MO2 but no file found ({len(exact.missing)}): "
+                    + ", ".join(exact.missing[:8]) + ("\u2026" if len(exact.missing) > 8 else "") + "\n", "warn")
+            put("\nYour list, from the files picked (before installing):\n", "meta")
         tag = "warn" if p.total_full > listcheck.PLUGIN_LIMIT - 10 else "good"
         put(f"About {p.total_full} regular plugins (.esp / .esm, counting the 5 from the game) - Skyrim's limit "
             f"is {listcheck.PLUGIN_LIMIT}.\n", tag)

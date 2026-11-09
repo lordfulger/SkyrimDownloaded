@@ -47,7 +47,8 @@ class DownloadMixin:
             if not messagebox.askokcancel(
                     "Ready?", f"Open {target.name} on your Skyrim setup now, then press OK.\n\n"
                     f"Each file is sent to {target.name} in your list's order, which downloads it with your "
-                    f"Nexus login{how}", parent=self._parent()):
+                    f"Nexus login{how}\n\nA few download at a time: the next is sent as soon as one finishes, "
+                    "and each shows as done here when it arrives.", parent=self._parent()):
                 return
         self._save_settings()
         if self._list_is_saved():

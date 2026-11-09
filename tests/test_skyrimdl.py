@@ -331,3 +331,55 @@ class ManagerAndConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HandoffPacingTests(unittest.TestCase):
+    def test_keeps_a_few_downloads_going(self):
+        import threading
+        import time as _time
+        from skyrimdl import engine
+        from skyrimdl.links import ListEntry
+        from skyrimdl.managers.base import Target
+        from skyrimdl.nexus import ModInfo
+        from skyrimdl.selection import FileOption
+        tmp = Path(tempfile.mkdtemp())
+        peak = [0]
+
+        class FakeManager(Target):
+            name = "Fake MO2"
+            in_flight = 2
+
+            def downloads_dir(self):
+                return tmp
+
+            def exe(self):
+                return tmp / "x.exe"
+
+            def handoff_args(self, url, install):
+                return [url]
+
+            def _launch(self, args):  # "MO2" starts the download, finishes it a moment later
+                fid = args[0].rsplit("/", 1)[-1]
+                part = tmp / f"file{fid}.7z.unfinished"
+                part.write_text("")
+                peak[0] = max(peak[0], len(list(tmp.glob("*.unfinished"))))
+
+                def finish():
+                    _time.sleep(0.3)
+                    part.rename(tmp / f"file{fid}.7z")
+                threading.Thread(target=finish).start()
+
+        opts = [FileOption(i, f"F{i}", f"file{i}.7z", "1", 1, 10) for i in range(1, 7)]
+        plan = engine.ModPlan(ListEntry("skyrimspecialedition", 1), ModInfo("skyrimspecialedition", 1, "M"),
+                              options=opts, selected=[o.file_id for o in opts])
+        jobs = jobs_for([plan])
+        client = NexusClient("test-key")
+        start = _time.monotonic()
+        engine.Runner(client, FakeManager("skyrimspecialedition"), mode="handoff").run(jobs)
+        self.assertLessEqual(peak[0], 2)                     # never more than 2 at once
+        self.assertLess(_time.monotonic() - start, 15)
+        _time.sleep(0.5)
+        engine.Runner(client, FakeManager("skyrimspecialedition"), mode="handoff")._arrived(
+            [(j, 0) for j in jobs])
+        self.assertTrue(all(j.state in (DONE, SENT) for j in jobs))
+        self.assertGreaterEqual(sum(j.state == DONE for j in jobs), 4)

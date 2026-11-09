@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 import threading
@@ -274,11 +275,17 @@ class Runner:
             else:
                 todo.append(job)
         if self.mode == "handoff":
+            sent: list[tuple[Job, float]] = []
             for job in todo:
+                if not self.cancel.is_set():
+                    self._wait_for_room(sent)
                 if self.cancel.is_set():
                     self._emit(job, STOPPED, "")
                     continue
                 self._handoff(job)
+                if job.state == SENT:
+                    sent.append((job, time.monotonic()))
+            self._arrived(sent)
         else:
             with ThreadPoolExecutor(max_workers=self.parallel) as pool:
                 for fut in [pool.submit(self._direct, job) for job in todo]:
@@ -288,6 +295,50 @@ class Runner:
             except (OSError, ManagerError):
                 pass
         return jobs
+
+    # -- pacing links to the manager by what it's downloading ---------------------------------
+
+    #: A link sent this recently counts as a download even before its file shows up.
+    START_GRACE = 20.0
+    #: Give up waiting for room after this long without any change (a stuck download).
+    STUCK_AFTER = 15 * 60.0
+
+    def _arrived(self, sent) -> None:
+        """Files the manager has finished downloading: shown as done."""
+        for job, _ in sent:
+            if job.state == SENT and self.target.download_state(job.option) == "done":
+                self._emit(job, DONE, f"downloaded in {self.target.name}")
+
+    def _in_progress(self, sent) -> int:
+        try:
+            folder = self.target.downloads_dir()
+            downloading = sum(1 for e in os.scandir(folder) if e.name.lower().endswith(".unfinished"))
+        except (OSError, ManagerError):
+            downloading = 0
+        now = time.monotonic()
+        waiting = sum(1 for job, t in sent if job.state == SENT and now - t < self.START_GRACE
+                      and not self.target.download_state(job.option))
+        return downloading + waiting
+
+    def _wait_for_room(self, sent) -> None:
+        """Keep a few downloads going in the manager at once, not hundreds."""
+        limit = max(1, int(getattr(self.target, "in_flight", 0) or 0))
+        if not sent or not limit:
+            return
+        last_change, last = time.monotonic(), None
+        while not self.cancel.is_set():
+            self._arrived(sent)
+            busy = self._in_progress(sent)
+            if busy < limit:
+                return
+            state = (busy, sum(1 for j, _ in sent if j.state == DONE))
+            if state != last:
+                last, last_change = state, time.monotonic()
+            elif time.monotonic() - last_change > self.STUCK_AFTER:
+                logging.getLogger("skyrimdl").warning("%s's downloads haven't moved in a while: sending the next "
+                                                      "link anyway", self.target.name)
+                return
+            self.cancel.wait(1.0)
 
     def _handoff(self, job: Job) -> None:
         key, expires = self._key_for(job)

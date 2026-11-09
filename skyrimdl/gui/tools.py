@@ -119,12 +119,11 @@ class ToolsMixin:
         review.wait_window()
         if review.choice == "review":
             to_review = report.plans_to_review()
-            suggested = report.suggestions()
-            for plan in to_review:  # tick the suggested patches; you can untick them
-                for fid in suggested.get(id(plan), {}):
-                    if fid not in plan.selected:
-                        plan.selected.append(fid)
-                        plan.reason = "suggested patch ticked - check it"
+            # tick the suggested patches (one per mod, one size); you can untick them
+            for plan, fid in compat.patches_to_tick(report, texture=self._target_game().texture):
+                if plan in to_review and fid not in plan.selected:
+                    compat.tick_patch(plan, fid)
+                    plan.reason = "suggested patch ticked - check it"
             self._fill_tree()
             self.walk_choices(to_review, review=True)
 

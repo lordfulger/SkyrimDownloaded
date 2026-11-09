@@ -39,6 +39,7 @@ class Settings:
     theme: str = "System"           # "System", "Light" or "Dark"
     game_version: str = ""          # e.g. "1.6.1170"; blank = don't filter by version
     game_store: str = "Steam"       # "Steam", "GOG" or "Game Pass"
+    texture_size: str = ""          # "1K", "2K", "4K", "8K"; blank = no preference
     check_app_updates: bool = True  # look for a newer SkyrimDownloaded once a day
     # The last login, so opening the app doesn't need to ask Nexus again (saves a request).
     account: dict = field(default_factory=dict)
@@ -72,7 +73,7 @@ class Settings:
 
     def game_target(self):
         from .gameversion import GameTarget
-        return GameTarget.from_settings(self.game_version, self.game_store)
+        return GameTarget.from_settings(self.game_version, self.game_store, self.texture_size)
 
     def target_paths(self) -> dict[str, str]:
         return {k: getattr(self, k) for k in

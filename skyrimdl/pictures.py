@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import re
 import urllib.request
 
 from . import __version__
@@ -68,3 +69,60 @@ def to_photo(data: bytes, max_width: int, max_height: int = 260):
         return photo.subsample(factor) if factor > 1 else photo
     except Exception:
         return None
+
+
+# -- pictures in a mod's description, matched to its files ------------------------------
+
+_IMG = re.compile(r"\[img[^\]]*\]\s*(https?://[^\[\s]+?)\s*\[/img\]|<img[^>]+src=[\"'](https?://[^\"']+)[\"']", re.I)
+_TOKEN = re.compile(r"[a-z]+(?:\s?\d+(?:\.\d+)?)?|\d+k", re.I)
+_DULL = {"se", "sse", "ae", "le", "v", "ver", "file", "files", "main", "optional", "mod", "the", "for",
+         "and", "or", "with", "a", "of", "to", "in", "by", "esp", "esl", "bsa", "loose", "k"}
+
+
+def description_images(raw: str) -> list[tuple[str, str]]:
+    """Pictures in a mod's description: (url, the text around it, mostly what comes before)."""
+    from .text import bbcode_to_text
+    out = []
+    last = 0
+    for m in _IMG.finditer(raw or ""):
+        url = m.group(1) or m.group(2)
+        before = bbcode_to_text(raw[last:m.start()]).strip()[-220:]
+        if not before:  # pictures in a row: the caption may come after
+            before = bbcode_to_text(raw[m.end():m.end() + 200]).split("[img")[0].strip()[:80]
+        out.append((url, before))
+        last = m.end()
+    return out
+
+
+def _tokens(text: str) -> set[str]:
+    toks = set()
+    for t in _TOKEN.findall((text or "").lower()):
+        t = re.sub(r"\s+", " ", t).strip()
+        if t and t not in _DULL and not re.fullmatch(r"\d+k|v?\d+(\.\d+)*", t):
+            toks.add(t)
+    return toks
+
+
+def match_images(options, images: list[tuple[str, str]], mod_name: str = "") -> dict[int, str]:
+    """{file_id: picture url}: a picture whose nearby text names what's special about a file
+    ("Version 1", "Desaturated"...). Files with nothing special, or a tie, get none."""
+    if not images or len(options) < 2:
+        return {}
+    names = {o.file_id: _tokens(o.name) for o in options}
+    shared = set.intersection(*names.values()) if names else set()
+    title = _tokens(mod_name)
+    out: dict[int, str] = {}
+    for o in options:
+        special = names[o.file_id] - shared - title
+        special = {t for t in special if len(t) > 2 and t.split(" ")[0] not in title}
+        if not special:
+            continue
+        scored = []
+        for url, context in images:
+            ctx = context.lower()
+            score = sum(1 for t in special if re.search(r"\b" + re.escape(t) + r"\b", ctx))
+            scored.append((score, url))
+        scored.sort(key=lambda x: -x[0])
+        if scored and scored[0][0] > 0 and (len(scored) == 1 or scored[0][0] > scored[1][0]):
+            out[o.file_id] = scored[0][1]
+    return out

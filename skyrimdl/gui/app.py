@@ -166,6 +166,12 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         store_box.bind("<<ComboboxSelected>>", lambda e: self._version_changed())
         self.detect_btn = ttk.Button(game, text="Detect", command=lambda: self.detect_game(quiet=False))
         self.detect_btn.pack(side="left")
+        ttk.Label(game, text="Textures:").pack(side="left", padx=(12, 0))
+        self.texture_var = tk.StringVar(value=NO_TEXTURE_PREF)
+        texture_box = ttk.Combobox(game, textvariable=self.texture_var, state="readonly", width=14,
+                                   values=[NO_TEXTURE_PREF] + TEXTURE_SIZES)
+        texture_box.pack(side="left", padx=6)
+        texture_box.bind("<<ComboboxSelected>>", lambda e: self._version_changed())
         self.game_note_var = tk.StringVar(value="Files for other versions are left out.")
         ttk.Label(game, textvariable=self.game_note_var, style="Muted.TLabel").pack(side="left", padx=8)
 
@@ -285,6 +291,8 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         bulk.add_command(label="Leave out every optional file", command=lambda: self.bulk("no-optional"))
         bulk.add_command(label="Untick files for other game versions", command=lambda: self.bulk("version"))
         bulk.add_command(label="Keep only the main files", command=lambda: self.bulk("main-only"))
+        bulk.add_command(label="Use my texture size (also for mods I picked by hand)",
+                         command=lambda: self.bulk("texture"))
         bulk.add_separator()
         bulk.add_command(label="Expand all", command=lambda: self.bulk("expand"))
         bulk.add_command(label="Collapse all", command=lambda: self.bulk("collapse"))

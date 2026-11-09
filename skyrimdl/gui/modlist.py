@@ -159,8 +159,9 @@ class ListMixin:
         declined = self.__dict__.setdefault("patch_declined", set())
         ticked = 0
         for plan, fid in compat.patches_to_tick(
-                report, skip=lambda p, f: self._patch_key(p, f) in declined):
-            plan.selected.append(fid)
+                report, skip=lambda p, f: self._patch_key(p, f) in declined,
+                texture=self._target_game().texture):
+            compat.tick_patch(plan, fid)  # a "DynDOLOD version" main file replaces the plain one
             ticked += 1
             if "patches" not in plan.reason:
                 plan.reason = (plan.reason + " + " if plan.reason else "") + "patches for mods in your list"

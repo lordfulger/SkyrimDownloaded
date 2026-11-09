@@ -40,13 +40,18 @@ class ManagerMixin:
         version = next((v for label, v in gameversion.PRESETS if label == text), None)
         if version is None:
             version = text if gameversion.parse_version(text) else ""
-        return gameversion.GameTarget.from_settings(version, self.store_var.get())
+        texture = self.texture_var.get() if hasattr(self, "texture_var") else ""
+        return gameversion.GameTarget.from_settings(version, self.store_var.get(),
+                                                    "" if texture == NO_TEXTURE_PREF else texture)
+
+    def _target_key(self, target) -> str:
+        return f"{target.describe()} / textures {target.texture or 'any'}"
 
     def _version_changed(self) -> None:
         target = self._target_game()
-        if target.describe() == getattr(self, "_last_target", None):
+        if self._target_key(target) == getattr(self, "_last_target", None):
             return
-        self._last_target = target.describe()
+        self._last_target = self._target_key(target)
         if not target.active and self.version_var.get().strip() not in ("", gameversion.PRESETS[0][0]):
             self.game_note_var.set("Type a version like 1.6.1170, or pick one from the list.")
             return

@@ -14,8 +14,9 @@ class ChoiceDialog(tk.Toplevel):
     def __init__(self, master, plans: list[ModPlan], include_old: bool, include_other: bool = False, *,
                  suggestions: dict | None = None, warnings: dict | None = None,
                  title: str = "Choose options", start: int = 0,
-                 requirement_rows=None, add_requirement=None):
+                 requirement_rows=None, add_requirement=None, texture: str = ""):
         super().__init__(master)
+        self.texture = texture
         self.plans = list(plans)
         self.include_old = include_old
         self.include_other = include_other
@@ -57,6 +58,8 @@ class ChoiceDialog(tk.Toplevel):
         self.find_entry.bind("<Escape>", lambda e: self.close_find() or "break")
         self._find_at = -1
         self._file_rows: list[tuple[object, str]] = []
+        self._photos: list = []
+        self._pic_token = object()
 
         body = ttk.Frame(self)
         self._body = body
@@ -77,6 +80,7 @@ class ChoiceDialog(tk.Toplevel):
         btns.pack(fill="x", padx=12, pady=(0, 12))
         ttk.Button(btns, text="\u25C0 Back", command=lambda: self.go(-1)).pack(side="left")
         ttk.Button(btns, text="Open mod page", command=self.open_page).pack(side="left", padx=6)
+        ttk.Button(btns, text="Pictures", command=self.open_pictures).pack(side="left")
         self.count = tk.StringVar()
         ttk.Label(btns, textvariable=self.count).pack(side="left", padx=8)
         ttk.Button(btns, text="Done", command=self.finish).pack(side="right")
@@ -111,6 +115,7 @@ class ChoiceDialog(tk.Toplevel):
         skipped = f"   \u2022   {len(self.later)} skipped for later" if self.later else ""
         self.count.set(f"Mod {self.index + 1} of {len(self.plans)}{skipped}")
         self.vars = []
+        self._photos = []
         self._file_rows = []
         self._find_at = -1
         last_cat = None
@@ -124,6 +129,11 @@ class ChoiceDialog(tk.Toplevel):
                 options.append(opt)
         suggested = self.suggestions.get(id(plan), {})
         self._show_needs(plan)
+        # Pictures from the mod's description, shown under the file they're about.
+        raw_desc = str(((plan.mod.raw or {}) if plan.mod else {}).get("description") or "")
+        pics = pictures.match_images(options, pictures.description_images(raw_desc),
+                                     plan.mod.name if plan.mod else "")
+        self._pic_token = object()
         for opt in options:
             if opt.category_label != last_cat:
                 last_cat = opt.category_label
@@ -133,9 +143,20 @@ class ChoiceDialog(tk.Toplevel):
             text = f"{opt.name}   v{opt.version}   ({opt.size_text})" if opt.version else f"{opt.name}   ({opt.size_text})"
             if opt.fit.note and opt.fit.status != "unknown":
                 text += f"   \u2014 {opt.fit.note}"
+            if self.texture and texture_sizes(opt) and len(options) > 1:
+                want = float(self.texture.rstrip("Kk"))
+                if texture_sizes(opt) == {want}:
+                    text += "   \u2605 your texture size"
+                elif want in texture_sizes(opt):
+                    text += "   \u2014 has your texture size"
             box = ttk.Checkbutton(self.inner, text=text, variable=var)
             box.pack(anchor="w")
             self._file_rows.append((box, f"{text} {opt.file_name} {opt.description}".lower()))
+            if opt.file_id in pics:
+                spot = ttk.Label(self.inner, text="(loading picture\u2026)", style="Muted.TLabel", cursor="hand2")
+                spot.pack(anchor="w", padx=24, pady=2)
+                spot.bind("<Button-1>", lambda e, u=pics[opt.file_id]: webbrowser.open(u))
+                self._load_picture(spot, pics[opt.file_id])
             if opt.file_id in suggested:
                 ttk.Label(self.inner, text=f"\u2605 Suggested patch: {suggested[opt.file_id]}",
                           style="Good.TLabel").pack(anchor="w", padx=24)
@@ -152,6 +173,35 @@ class ChoiceDialog(tk.Toplevel):
             self.master._theme.paint(self)
         if self.find_bar.winfo_ismapped() and self.find_var.get().strip():
             self.after_idle(lambda: self.find_file(0))
+
+    # -- pictures --------------------------------------------------------------
+
+    def _load_picture(self, spot, url: str) -> None:
+        """Download in the background; shown when ready (if this mod is still on screen)."""
+        token = self._pic_token
+        box: dict = {}
+
+        def work():
+            box["data"] = pictures.fetch(url)
+        threading.Thread(target=work, daemon=True).start()
+
+        def check():
+            if token is not self._pic_token or not spot.winfo_exists():
+                return  # moved on to another mod
+            if "data" not in box:
+                self.after(200, check)
+                return
+            photo = pictures.to_photo(box["data"], 220, 124)
+            if photo is None:
+                spot.configure(text="(picture couldn't be shown - click to open it)")
+                return
+            self._photos.append(photo)  # Tk needs a reference kept
+            spot.configure(image=photo, text="")
+        self.after(200, check)
+
+    def open_pictures(self) -> None:
+        """The mod's image gallery on Nexus (it can't be read by programs, so in the browser)."""
+        webbrowser.open(self.plan.entry.page_url + "?tab=images")
 
     # -- Ctrl+F --------------------------------------------------------------
 

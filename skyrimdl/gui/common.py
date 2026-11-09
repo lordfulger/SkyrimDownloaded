@@ -31,9 +31,11 @@ from ..logs import log
 from ..scrolling import AutoScroll, wheel_scroll
 from ..text import bbcode_to_text
 from ..engine import rechoose
-from ..selection import annotate, for_other_versions, human_size, human_time, primary_file, visible_options
+from ..selection import (TEXTURE_SIZES, annotate, for_other_versions, human_size, human_time, prefer_texture,
+                         prefer_variants, primary_file, texture_sizes, visible_options)
 
 
+NO_TEXTURE_PREF = "Any size"
 API_KEY_PAGE = "https://www.nexusmods.com/settings/api-keys"
 ON, OFF = "\u2611", "\u2610"  # ☑ ☐
 # A Nexus personal API key: one long run of base64-ish characters, no spaces.

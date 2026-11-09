@@ -235,6 +235,77 @@ def prefer_variants(files: list[FileOption], selected: list[int]) -> list[int]:
     return result
 
 
+# -- texture sizes: 1K, 2K, 4K, mixes like "2K4K" ---------------------------------------
+
+TEXTURE_SIZES = ["1K", "2K", "4K", "8K"]
+_RES_K = re.compile(r"(?<![a-jl-z\d.])(0?\.5|512|1|2|4|8|16)\s?k(?![a-z])", re.I)  # "2K4K" and "2k_4k" too
+_RES_PX = re.compile(r"(?<![a-z\d.])(512|1024|2048|4096|8192)(?:\s?px)?(?![a-z\d.])", re.I)
+_PX_TO_K = {"512": 0.5, "1024": 1, "2048": 2, "4096": 4, "8192": 8}
+_RES_WORDS = re.compile(r"\b(?:textures?|tex|res(?:olution)?|mix(?:ed)?|and|version|ver|edition|"
+                        r"performance|quality|hd|uhd)\b", re.I)
+
+
+def texture_sizes(opt: FileOption) -> frozenset:
+    """Texture sizes a file says it has, in K: "2K" -> {2}, "2K4K" or "2K-4K mix" -> {2, 4}."""
+    text = opt.name or ""
+    sizes = {0.5 if m.group(1) == "512" else float(m.group(1)) for m in _RES_K.finditer(text)}
+    sizes |= {float(_PX_TO_K[m.group(1)]) for m in _RES_PX.finditer(text)}
+    return frozenset(sizes)
+
+
+def texture_key(opt: FileOption) -> str:
+    """The file's name without the size words: the same textures in other sizes share it."""
+    text = _RES_K.sub(" ", opt.name or "")
+    text = _RES_PX.sub(" ", text)
+    text = re.sub(r"[-_.()\[\]+/&,|]", " ", text.lower())
+    text = _RES_WORDS.sub(" ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def parse_texture(pref: str | None) -> float | None:
+    m = re.match(r"\s*(\d+(?:\.\d+)?)\s*k", pref or "", re.I)
+    return float(m.group(1)) if m else None
+
+
+def texture_fit(sizes: frozenset, want: float) -> tuple:
+    """Lower is better: exactly your size, then a mix with your size, then the next
+    size down, then the next size up."""
+    if sizes == {want}:
+        return (0, 0)
+    if want in sizes:
+        return (1, len(sizes))
+    if max(sizes) < want:
+        return (2, want / max(sizes))
+    return (3, min(sizes) / want)
+
+
+def texture_siblings(opt: FileOption, files: list[FileOption]) -> list[FileOption]:
+    """The same file in other texture sizes (use one of them)."""
+    if not texture_sizes(opt):
+        return []
+    key = texture_key(opt)
+    return [o for o in files if o.file_id != opt.file_id and o.category in CURRENT and not o.fit.hidden
+            and texture_sizes(o) and texture_key(o) == key]
+
+
+def prefer_texture(files: list[FileOption], selected: list[int], pref: str | None) -> list[int]:
+    """Swap each picked file for the same file in your texture size (or the closest)."""
+    want = parse_texture(pref)
+    if not want:
+        return selected
+    by_id = {f.file_id: f for f in files}
+    result: list[int] = []
+    for fid in selected:
+        opt = by_id.get(fid)
+        group = [opt] + texture_siblings(opt, files) if opt else []
+        if len(group) > 1:
+            fid = min(group, key=lambda o: (texture_fit(texture_sizes(o), want), not o.is_primary,
+                                            -o.uploaded)).file_id
+        if fid not in result:
+            result.append(fid)
+    return result
+
+
 def primary_file(files: list[FileOption]) -> FileOption | None:
     current = [f for f in files if f.category in CURRENT]
     if not current:
@@ -319,6 +390,17 @@ def choose(entry: ListEntry, files: list[FileOption], remembered: list[int] | No
 
     best = primary_file(files)
     selected = prefer_variants(files, [best.file_id]) if best else []
+    pref = target.texture if target is not None else ""
+    if pref and selected:
+        sized = prefer_texture(files, selected, pref)
+        if sized != selected:
+            selected = prefer_variants(files, sized)
+        # Only sizes of the same textures to pick from: no need to ask.
+        chosen = [by_id[f] for f in selected if f in by_id]
+        alike = {f.file_id for c in chosen for f in [c] + texture_siblings(c, files) + siblings(c, files)}
+        if (rule.mode == "auto" and chosen and len(current) > 1 and texture_siblings(chosen[0], files)
+                and all(f.file_id in alike for f in current)):
+            return Choice(selected, False, f"your texture size ({pref})" + note)
     if rule.mode == "primary":
         return Choice(selected, False, "primary file" + note)
     if rule.mode == "ask":

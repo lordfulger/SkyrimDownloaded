@@ -120,17 +120,27 @@ class PlanMixin:
             messagebox.showinfo("Bulk actions", "No suggested patches yet - press Check compatibility first.",
                                 parent=self._parent())
             return
+        want = self._target_game().texture
+        picks: dict = {}
+        if action == "patches":
+            for p, fid in compat.patches_to_tick(self.compat, texture=want):
+                picks.setdefault(id(p), []).append(fid)
+        if action == "texture" and not want:
+            messagebox.showinfo("Bulk actions", "Pick a texture size first (Textures:, next to Your Skyrim).",
+                                parent=self._parent())
+            return
         changed = 0
         for plan in targets:
             before = list(plan.selected)
-            if action == "patches":
-                for fid in suggestions.get(id(plan), {}):
-                    if fid not in plan.selected:
-                        plan.selected.append(fid)
+            if action == "patches":  # one per mod it's for, one texture size
+                for fid in picks.get(id(plan), []):
+                    compat.tick_patch(plan, fid)
             elif action == "no-optional":
                 plan.selected = [f for f in plan.selected if (o := plan.option(f)) is None or o.category != 3]
             elif action == "version":
                 plan.selected = [f for f in plan.selected if (o := plan.option(f)) is None or not o.fit.hidden]
+            elif action == "texture":
+                plan.selected = prefer_variants(plan.options, prefer_texture(plan.options, plan.selected, want))
             elif action == "main-only":
                 mains = [f for f in plan.selected if (o := plan.option(f)) is not None and o.category == 1]
                 plan.selected = mains or plan.selected  # never leave a mod with nothing
@@ -443,7 +453,8 @@ class PlanMixin:
                            warnings=report.warnings() if report else {},
                            title="Review linked mods" if review else "Choose options", start=start,
                            requirement_rows=self.requirement_rows,
-                           add_requirement=self.add_requirement_to_list)
+                           add_requirement=self.add_requirement_to_list,
+                           texture=self._target_game().texture)
         dlg.wait_window()
         if report:  # suggested patches unticked in the window stay unticked
             declined = self.__dict__.setdefault("patch_declined", set())

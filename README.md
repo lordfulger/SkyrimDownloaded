@@ -76,6 +76,7 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
    - It looks at MO2's global instances and Vortex's own settings, which include a moved downloads folder.
    - It searches your drives a few folders deep for `ModOrganizer.exe`, `Vortex.exe` and the marker file Vortex keeps in its downloads folder. This step stops after a minute.
 3. **Your Skyrim:** pick your game version, or press **Detect** to read it from your `SkyrimSE.exe` (see below).
+   - **Textures:** pick 1K, 2K, 4K or 8K. When a mod offers the same textures in several sizes ("1K", "2K", "2K4K", "2048"...), your size is picked by itself (or the closest: the next size down, then up; a mix like 2K4K counts for 2K and 4K). If those sizes were the only choice, the mod isn't asked about. Files picked in the list (`match=`, `file=`) or by you earlier stay as they are; **Bulk actions → Use my texture size** changes those too.
 4. **Mod list:** open a `.txt` file, or type or paste links into the box. Then press **Look up mods**.
    - **Find** above the box (or **Ctrl+F** while you're in the list) marks every match in the list. **Enter** or **▼** goes to the next one, **Shift+Enter** or **▲** to the one before, **Esc** clears it.
 5. **Choose options:** for every mod with more than one file, a window steps you through them one at a time. Tick the files you want.
@@ -83,6 +84,7 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
    - **Done** pauses. The mod on screen isn't chosen for you unless you changed its ticks. Press **Choose options…** later and it carries on at the first mod still waiting, with **Back** for the ones before it. Your place is kept even if you close the app.
    - **Skip for now** puts a mod off; it comes back after all the others. Mods still skipped or waiting stay highlighted in the list.
    - **Leave this mod out** drops it from this download.
+   - Pictures from the mod's description are shown under the file they're about (e.g. "Version 1", "Desaturated"); click one to open it full size. **Pictures** opens the mod's image gallery on Nexus in your browser (Nexus doesn't let programs read the gallery).
    - The wheel, middle-click scrolling and Page Up/Down all scroll the list of files. **Ctrl+F** finds a file in the list (**Enter** for the next match).
    - Warnings at the top ("needs …", "may conflict with …") link to that mod's Nexus page: click the name. After "needs …" it says whether that mod will be downloaded: **✓ in your list**, **Add to list** if it isn't in your list, or **Include it** if it's in your list but left out.
    - In the main list, tick or untick a file by clicking its box or double-clicking it. **Choose options…** opens the window again.
@@ -246,6 +248,9 @@ Some mods offer the same file in more than one form: a regular plugin and an **E
 After **Look up mods**, any file on a mod's Files tab that's meant for another mod in your list gets ticked. For example, EasyNPC's files for Pandorable or Interesting NPCs are ticked when those mods are in your list too.
 - These files are marked ★ in the list. If you untick one, it stays unticked, even after another lookup or a restart.
 - Files for other Skyrim versions are never ticked.
+- Only one per mod it's for: when the same patch comes in several texture sizes (1K / 2K), only one is ticked - your texture size, else the size of the mod's file you picked.
+- When it's another version of the main file (e.g. "DynDOLOD version" next to "Standard version"), it replaces the main file instead of being ticked as well.
+- A file that only says it's "compatible with" another mod isn't treated as a patch for it.
 - This covers patches that are separate files on Nexus. Options inside a mod's installer window (FOMOD) are chosen when it installs.
 - Command line: on by default; `--no-auto-patches` turns it off.
 

@@ -50,6 +50,7 @@ _CONFLICT = re.compile(
     r"don'?t use (?:this |it )?with|conflicts? with)", re.I)
 _REQUIRES = re.compile(r"requires?|required|requirements?|needs|dependenc\w*|depends on|you need|must have", re.I)
 _PATCHY = re.compile(r"patch|compatib\w*|integrat\w*|support\w*|add-?on|for users of|if you use", re.I)
+_TRAILING_VERSION = re.compile(r"\s+v?\d+(?:\.\d+)*[a-z]?\s*$", re.I)
 _WORKS = re.compile(r"compatible with|works (?:fine |well )?with|work together", re.I)
 
 
@@ -137,7 +138,12 @@ def aliases(name: str) -> list[tuple[str, bool]]:
     out: list[tuple[str, bool]] = []
     name = re.sub(r"\s+", " ", name or "").strip()
     base = re.split(r"\s+[-–|:]\s+|\s*[(\[]", name)[0].strip()
-    for variant in (name, base, _SUFFIX.sub("", base).strip(), _SUFFIX.sub("", name).strip()):
+    variants = [name, base, _SUFFIX.sub("", base).strip(), _SUFFIX.sub("", name).strip()]
+    for v in list(variants):  # "DynDOLOD 3", "SkyUI 5.2", "Mod SE v2" -> without the number
+        bare = _SUFFIX.sub("", _TRAILING_VERSION.sub("", v)).strip()
+        if bare and bare != v:
+            variants.append(bare)
+    for variant in variants:
         v = variant.strip(" -:")
         if not v or v.lower() in _GENERIC:
             continue
@@ -246,7 +252,8 @@ def check(plans, client=None, *, workers: int = 4) -> Report:
                     # the mod itself is for SkyUI - that doesn't make them patches.
                     in_name = []
                 desc_spots = _mentions(opt.description, o_pats, ids, other.entry.mod_id)
-                patchy = any(_PATCHY.search("".join(_context(opt.description, s))) for s in desc_spots)
+                patchy = any(_PATCHY.search(ctx) and not _WORKS.search(ctx)  # "compatible with X" isn't a patch
+                             for ctx in ("".join(_context(opt.description, s)) for s in desc_spots))
                 if not in_name and not (other.entry.mod_id in ids or patchy):
                     continue
                 if not in_name and desc_spots and all(
@@ -300,7 +307,28 @@ _NOT_FOR_AUTO = re.compile(r"\b(?:legacy|outdated|deprecated|obsolete|old(?:er)?
                            r"test(?:ing)?|experimental|wip|dev(?:elopment)? build)\b", re.I)
 
 
-def patches_to_tick(report, skip=lambda plan, file_id: False) -> list:
+_ALT_MAIN = re.compile(r"\b(?:version|edition|variant|only if you use|if you use|instead of|alternative|"
+                       r"(?:don'?t|do not) use both|use (?:only )?one)\b", re.I)
+
+
+def tick_patch(plan, fid) -> list[int]:
+    """Tick a patch file. When it's a main file that's another version of the main file you
+    picked (e.g. "DynDOLOD version" next to "Standard version"), it replaces that file.
+    Returns the file ids it replaced."""
+    from .selection import MAIN
+    opt = plan.option(fid)
+    replaced: list[int] = []
+    if opt is not None and opt.category == MAIN and _ALT_MAIN.search(f"{opt.name} {opt.description}"):
+        mains = [o for o in plan.selected_options() if o.category == MAIN and o.file_id != fid]
+        if len(mains) == 1:
+            replaced = [mains[0].file_id]
+            plan.selected = [f for f in plan.selected if f not in replaced]
+    if fid not in plan.selected:
+        plan.selected.append(fid)
+    return replaced
+
+
+def patches_to_tick(report, skip=lambda plan, file_id: False, texture: str = "") -> list:
     """The patch files worth ticking by themselves: (plan, file_id) pairs.
 
     Careful on purpose:
@@ -308,10 +336,26 @@ def patches_to_tick(report, skip=lambda plan, file_id: False) -> list:
       game version, and not called beta / legacy / outdated / test...;
     * one file per mod it's for - when a mod has several patches for the same other
       mod (v1.0, v1.2...), only the newest; none if you already picked one yourself;
+    * the same patch in several texture sizes (1K / 2K...): only one - your texture
+      size, else the size of the mod's own file you picked, else the closest;
     * ``skip`` says no for ones you unticked before.
     """
-    from .selection import MAIN, MISC, OPTIONAL, siblings, variant_score
+    from .selection import (MAIN, MISC, OPTIONAL, parse_texture, siblings, texture_fit, texture_siblings,
+                            texture_sizes, variant_score)
     best: dict = {}
+
+    def wanted_size(plan):
+        want = parse_texture(texture)
+        if want:
+            return want
+        own = [texture_sizes(o) for o in plan.selected_options() if len(texture_sizes(o)) == 1]
+        return max(next(iter(x)) for x in own) if own else None
+
+    def rank(plan, opt):
+        want = wanted_size(plan)
+        fit = texture_fit(texture_sizes(opt), want) if want and texture_sizes(opt) else (0, 0)
+        return (tuple(-x for x in fit), variant_score(opt), opt.uploaded)
+
     for f in report.by_kind(PATCH):
         plan, fid = f.plan, f.file_id
         opt = plan.option(fid) if hasattr(plan, "option") else None
@@ -319,10 +363,11 @@ def patches_to_tick(report, skip=lambda plan, file_id: False) -> list:
                 or opt.category not in (MAIN, OPTIONAL, MISC) or opt.fit.hidden
                 or _NOT_FOR_AUTO.search(f"{opt.name} {opt.file_name}")):
             continue
-        if any(s.file_id in plan.selected for s in siblings(opt, plan.options)):
-            continue  # a variant of it (ESL / packed / loose) is already ticked
+        if any(s.file_id in plan.selected
+               for s in siblings(opt, plan.options) + texture_siblings(opt, plan.options)):
+            continue  # a variant of it (ESL / packed / loose / another size) is already ticked
         key = (id(plan), id(f.other))
-        if key in best and (variant_score(best[key][1]), best[key][1].uploaded) >= (variant_score(opt), opt.uploaded):
+        if key in best and rank(plan, best[key][1]) >= rank(plan, opt):
             continue
         best[key] = (plan, opt, f.other)
     picks = []

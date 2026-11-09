@@ -77,10 +77,11 @@ class GameTarget:
 
     version: Version | None = None
     store: str = "Steam"
+    texture: str = ""    # texture size you want ("2K"); blank = no preference
 
     @classmethod
-    def from_settings(cls, version: str, store: str) -> "GameTarget":
-        return cls(parse_version(version), store if store in STORES else "Steam")
+    def from_settings(cls, version: str, store: str, texture: str = "") -> "GameTarget":
+        return cls(parse_version(version), store if store in STORES else "Steam", texture or "")
 
     @property
     def active(self) -> bool:

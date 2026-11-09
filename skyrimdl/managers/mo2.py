@@ -105,11 +105,13 @@ class MO2Target(Target):
     def instance_dir(self) -> Path | None:
         if self._instance:
             return self._instance
+        if self._exe:  # a portable MO2 keeps its instance next to the exe: that's the one in use
+            folder = self._exe if self._exe.is_dir() else self._exe.parent
+            if (folder / "ModOrganizer.ini").is_file():
+                return folder
         found = find_instances()
         if len(found) == 1:
             return found[0]
-        if self._exe and (self._exe.parent / "ModOrganizer.ini").is_file():
-            return self._exe.parent  # portable
         return None
 
     @property
@@ -184,6 +186,14 @@ class MO2Target(Target):
     def after_download(self, path: Path, mod: ModInfo, option: FileOption, install: bool) -> str:
         write_meta(path, mod, option, self.game)
         return "in MO2's Downloads tab"
+
+
+NEXUS_DOMAINS = {v.lower(): k for k, v in MO2_GAME_NAMES.items()}
+
+
+def nexus_domain(game_name: str, default: str) -> str:
+    """The Nexus site a mod came from, from MO2's gameName= (\"SkyrimSE\" -> skyrimspecialedition)."""
+    return NEXUS_DOMAINS.get((game_name or "").strip().strip('"').lower(), default)
 
 
 def read_installed(mods_dir: Path) -> dict:

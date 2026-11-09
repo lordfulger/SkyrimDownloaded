@@ -67,7 +67,7 @@ class ManagerMixin:
         for plan in self.plans:
             if plan.error or plan.skipped or not plan.options:
                 continue
-            if plan.reason in ("your choice", "your earlier choice"):
+            if plan.chosen_by_user:
                 annotate(plan.options, target)
                 if not any(o.fit.hidden for o in plan.selected_options()):
                     continue  # still fine for the new version: keep it

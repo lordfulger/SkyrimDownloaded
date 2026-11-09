@@ -447,6 +447,10 @@ def choose(entry: ListEntry, files: list[FileOption], remembered: list[int] | No
         return Choice([best.file_id] if best else [], True,
                       f"no file seems to be for {target.describe() if target else 'your game'}")
     note = f" ({hidden} for other game versions left out)" if hidden else ""
+    if any(f.category == MAIN for f in all_current) and not any(f.category == MAIN for f in current):
+        # Every main file looks like it's for another version: don't quietly take only the extras.
+        return Choice([], True,
+                      "the main file looks like it's for another game version - check it" + note)
 
     # 2. Name matches, e.g. "| match=2K".
     if rule.match:
@@ -460,10 +464,18 @@ def choose(entry: ListEntry, files: list[FileOption], remembered: list[int] | No
                       f"no file name has {', '.join(rule.match)!s} in it")
 
     # 3. A choice the user made on an earlier run.
+    if remembered is not None and len(remembered) == 0 and rule.mode in ("auto", "ask"):
+        return Choice([], False, "left out by you")
     if remembered and (rule.mode == "ask" or (rule.mode == "auto" and len(current) > 1)):
         still_there = [fid for fid in remembered if fid in by_id]
         if still_there and len(still_there) == len(remembered):
-            return Choice(still_there, rule.mode == "ask", "your earlier choice")
+            stale = [fid for fid in still_there
+                     if by_id[fid].fit.hidden or by_id[fid].category not in CURRENT]
+            if not stale:
+                return Choice(still_there, rule.mode == "ask", "your earlier choice")
+            # Picked before, but now for another game version or moved to old files: ask again.
+            return Choice(still_there, True, "your earlier pick is for another game version or an "
+                                             "old file now - check it")
 
     if rule.mode == "main":
         mains = [f.file_id for f in current if f.category == MAIN] or [current[0].file_id]

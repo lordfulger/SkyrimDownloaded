@@ -15,6 +15,7 @@ works too: every Nexus link in it is picked up.
 
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass, field
 from urllib.parse import parse_qs, urlsplit
@@ -22,7 +23,7 @@ from urllib.parse import parse_qs, urlsplit
 DEFAULT_GAME = "skyrimspecialedition"  # Skyrim Special / Anniversary Edition
 
 _NEXUS_URL = re.compile(
-    r"https?://(?:www\.|next\.)?nexusmods\.com/(?:games/)?"
+    r"(?:https?://|(?<![\w./-]))(?:www\.|next\.)?nexusmods\.com/(?:games/)?"  # "https://" may be left off
     r"(?P<game>[a-z0-9]+)/mods/(?P<mod>\d+)(?P<rest>[^\s<>\"'|)\]]*)",
     re.IGNORECASE,
 )
@@ -37,6 +38,9 @@ _COMMENT = re.compile(r"(^|\s)#.*$")
 
 # "## 02 - ENGINE, SKSE LIBRARIES" starts a section (an MO2 separator). "#!" lines are settings.
 _SECTION = re.compile(r"^\s*##(?!#)\s*(.*?\S)\s*#*\s*$")
+
+
+_LINKISH = re.compile(r"nexusmods\.com/|nxm://", re.I)
 
 
 class ListError(ValueError):
@@ -141,6 +145,7 @@ class ListEntry:
     nxm_key: str | None = None   # from an nxm:// link clicked on the site
     nxm_expires: int | None = None
     section: str = ""          # the "## Heading" it's under (an MO2 separator)
+    from_number: bool = field(default=False, repr=False, compare=False)  # a bare "12604" line
 
     @property
     def key(self) -> str:
@@ -169,8 +174,23 @@ def parse_line(line: str, line_no: int = 0, default_game: str = DEFAULT_GAME) ->
     if comment_match:
         note = comment_match.group(0).strip().lstrip("#").strip()
         line = line[: comment_match.start()]
-    link_part, bar, rule_part = line.partition("|")
-    rule = Rule.parse(rule_part) if bar else Rule()
+    # Choices come after a "|" that follows the links ("| SkyUI | https://... | Required |" from a
+    # pasted table has bars before the link too).
+    ends = [m.end() for rx in (_NXM_URL, _NEXUS_URL) for m in rx.finditer(line)]
+    cut = line.find("|", max(ends)) if ends else line.find("|")
+    if cut >= 0:
+        link_part, bar, rule_part = line[:cut], "|", line[cut + 1:]
+    else:
+        link_part, bar, rule_part = line, "", ""
+    starts = [m.start() for rx in (_NXM_URL, _NEXUS_URL) for m in rx.finditer(line)]
+    table_row = bool(starts) and "|" in line[:min(starts)]  # a row pasted from a table: other columns
+    if bar and table_row:
+        try:
+            rule = Rule.parse(rule_part)
+        except ListError:
+            rule = Rule()  # "| Required |" etc. are just the table's other columns
+    else:
+        rule = Rule.parse(rule_part) if bar else Rule()
 
     entries: list[ListEntry] = []
     taken: list[tuple[int, int]] = []
@@ -180,7 +200,7 @@ def parse_line(line: str, line_no: int = 0, default_game: str = DEFAULT_GAME) ->
         expires = (query.get("expires") or [None])[0]
         entries.append(ListEntry(
             game=m.group("game").lower(), mod_id=int(m.group("mod")),
-            file_ids=[int(m.group("file"))], rule=rule, note=note, line_no=line_no,
+            file_ids=[int(m.group("file"))], rule=copy.deepcopy(rule), note=note, line_no=line_no,
             nxm_key=(query.get("key") or [None])[0],
             nxm_expires=int(expires) if expires and expires.isdigit() else None,
         ))
@@ -189,14 +209,14 @@ def parse_line(line: str, line_no: int = 0, default_game: str = DEFAULT_GAME) ->
             continue
         entries.append(ListEntry(
             game=m.group("game").lower(), mod_id=int(m.group("mod")),
-            file_ids=_file_ids_from_query(m.group("rest")), rule=rule,
+            file_ids=_file_ids_from_query(m.group("rest")), rule=copy.deepcopy(rule),
             note=note, line_no=line_no,
         ))
     if not entries:
         bare = _BARE_ID.match(link_part)
         if bare:
             entries.append(ListEntry(game=default_game, mod_id=int(bare.group("mod")),
-                                     rule=rule, note=note, line_no=line_no))
+                                     rule=rule, note=note, line_no=line_no, from_number=True))
         elif bar and link_part.strip():
             raise ListError(f"line {line_no}: no Nexus link or mod number before '|'")
     return entries
@@ -209,7 +229,7 @@ def parse_list(text: str, default_game: str = DEFAULT_GAME) -> tuple[list[ListEn
     section = ""
     for line_no, line in enumerate(text.splitlines(), start=1):
         heading = _SECTION.match(line)
-        if heading:
+        if heading and not _LINKISH.search(line):  # "## https://..." is a link commented out, not a heading
             section = heading.group(1).strip()
             continue
         try:
@@ -229,10 +249,18 @@ def parse_list(text: str, default_game: str = DEFAULT_GAME) -> tuple[list[ListEn
                 if fid not in old.file_ids:
                     old.file_ids.append(fid)
             if old.rule.file_ids and entry.rule.file_ids:  # file=1 on one line, file=2 on another: both
-                old.rule.file_ids += [f for f in entry.rule.file_ids if f not in old.rule.file_ids]
+                old.rule.file_ids = old.rule.file_ids + [f for f in entry.rule.file_ids
+                                                         if f not in old.rule.file_ids]
             elif entry.rule.mode != "auto" or entry.rule.file_ids or entry.rule.match:
                 old.rule = entry.rule
             old.note = old.note or entry.note
             old.nxm_key = old.nxm_key or entry.nxm_key
             old.nxm_expires = old.nxm_expires or entry.nxm_expires
+    # A bare number among links is often a step number or a year from a pasted guide.
+    links = sum(1 for e in merged.values() if not e.from_number)
+    if links >= 3:
+        for e in merged.values():
+            if e.from_number:
+                problems.append(f"line {e.line_no}: just a number, read as mod {e.mod_id} - if that's not "
+                                "a mod number, delete the line or put # in front of it")
     return list(merged.values()), problems

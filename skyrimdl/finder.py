@@ -40,10 +40,12 @@ _SKIP_DIRS = {
     "programdata", "msocache", "$windows.~bt", "$windows.~ws", "windows.old",
     "winsxs", "windowsapps", "node_modules", ".git", "__pycache__", "appdata",
     "config.msi", "intel", "amd", "nvidia", "drivers", "temp", "tmp",
-    # inside a mod setup: huge and never holds what we look for
-    "mods", "overwrite", "profiles", "webcache", "crashdumps", "logs", "data",
-    "textures", "meshes", "shadercache", "workshop", "compatdata", "downloading",
+    "shadercache", "workshop", "compatdata", "downloading",
 }
+# Inside a mod setup (a folder with ModOrganizer.exe/.ini): huge and never holds what we look
+# for. Skipped only there - "D:\\Mods\\Skyrim\\ModOrganizer.exe" must still be found.
+_SETUP_DIRS = {"mods", "overwrite", "profiles", "webcache", "crashdumps", "logs", "data",
+               "textures", "meshes", "downloads"}
 
 
 @dataclass
@@ -307,6 +309,7 @@ def walk_for_targets(roots: list[Path], *, max_depth: int = 5, budget: float = 6
                 entries = list(it)
         except OSError:
             continue
+        in_setup = any(e.name.lower() in ("modorganizer.exe", "modorganizer.ini") for e in entries)
         for entry in entries:
             name = entry.name.lower()
             try:
@@ -314,7 +317,8 @@ def walk_for_targets(roots: list[Path], *, max_depth: int = 5, budget: float = 6
                     if name in wanted:
                         hits.append(Path(entry.path))
                 elif (entry.is_dir(follow_symlinks=False) and depth < max_depth
-                      and name not in _SKIP_DIRS and not name.startswith((".", "$"))):
+                      and name not in _SKIP_DIRS and not (in_setup and name in _SETUP_DIRS)
+                      and not name.startswith((".", "$"))):
                     queue.append((Path(entry.path), depth + 1))
             except OSError:
                 continue

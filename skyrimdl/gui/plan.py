@@ -8,6 +8,18 @@ from .dialogs import ChoiceDialog, CompatDialog, UpdatesDialog
 
 class PlanMixin:
     def _matches(self, plan: ModPlan, query: str) -> bool:
+        show = self.show_var.get() if hasattr(self, "show_var") else SHOW_FILTERS[0]
+        if show != SHOW_FILTERS[0]:
+            keep = {
+                "Still to choose": plan.needs_choice and not plan.error,
+                "Problems (errors, warnings)": bool(plan.error) or id(plan) in getattr(self, "_warned", ()),
+                "New files on Nexus": plan.newer_files,
+                "Left out": not plan.error and (plan.skipped or not plan.selected),
+                "Patches ticked by the app": "patches for mods in your list" in plan.reason
+                                             or "suggested patch" in plan.reason,
+            }.get(show, True)
+            if not keep:
+                return False
         if not query:
             return True
         text = " ".join([plan.title, plan.mod.author if plan.mod else "", plan.entry.note,
@@ -109,12 +121,15 @@ class PlanMixin:
 
     def bulk(self, action: str) -> None:
         """Apply one change to every mod shown (all of them, or the ones matching the search)."""
+        if self.busy_with_list("changing every mod"):
+            return
         if action in ("expand", "collapse"):
             for row in self._row_plan:
                 self.tree.item(row, open=action == "expand")
             return
         query = self.filter_var.get().strip()
         targets = [p for p in self.plans if not p.error and not p.skipped and self._matches(p, query)]
+        before_all = [(p, list(p.selected), p.needs_choice, p.reason, p.chosen_by_user) for p in targets]
         suggestions = self.compat.suggestions() if self.compat else {}
         if action == "patches" and not suggestions:
             messagebox.showinfo("Bulk actions", "No suggested patches yet - press Check compatibility first.",
@@ -148,22 +163,46 @@ class PlanMixin:
                 changed += 1
                 plan.needs_choice = False
                 plan.reason = "your choice" if plan.selected else "nothing ticked - mod left out"
+                plan.chosen_by_user = True
+        if changed:
+            self._undo = [t for t in before_all if t[0].selected != t[1]]  # Bulk actions > Undo / Ctrl+Z
         self._fill_tree()
         where = f" (mods matching \u201c{query}\u201d)" if query else ""
-        self.status_var.set(f"Changed {changed} mod(s){where}.")
+        self.status_var.set(f"Changed {changed} mod(s){where}." + (" Ctrl+Z (in the list) undoes it." if changed else ""))
+
+    def undo_bulk(self, event=None):
+        """Put back what the last bulk action changed."""
+        undo = getattr(self, "_undo", None)
+        if not undo or self.busy:
+            self.status_var.set("Nothing to undo." if not undo else "Wait for the current job to finish first.")
+            return "break"
+        for plan, selected, needs_choice, reason, chosen in undo:
+            plan.selected, plan.needs_choice, plan.reason, plan.chosen_by_user = selected, needs_choice, reason, chosen
+        self._undo = None
+        self._fill_tree()
+        self.status_var.set(f"Undid the last bulk action ({len(undo)} mods back as they were).")
+        return "break"
 
     def _fill_tree(self) -> None:
         self.save_session()
         self._filter_job = None
+        # Keep your place: which mods were open, which row was picked, how far down you were.
+        was_open = {p.entry.key for r, p in self._row_plan.items() if self.tree.exists(r) and self.tree.item(r, "open")}
+        picked = [self._row_plan.get(r) or (self._row_option.get(r) or (None,))[0] for r in self.tree.selection()]
+        picked_key = picked[0].entry.key if picked and picked[0] is not None else None
+        rebuilt = bool(self._row_plan)
+        top = self.tree.yview()[0] if rebuilt else 0.0
         self.tree.delete(*self.tree.get_children())
         self._row_option.clear()
         self._row_plan.clear()
         self._job_rows.clear()
         query = self.filter_var.get().strip() if hasattr(self, "filter_var") else ""
+        filtered = bool(query) or (hasattr(self, "show_var") and self.show_var.get() != SHOW_FILTERS[0])
         mods_shown = 0
         section = None
         # Worked out once, not once per mod (that was slow with hundreds of mods).
         all_warns = self.compat.warnings() if self.compat else {}
+        self._warned = set(all_warns)
         all_suggested = self.compat.suggestions() if self.compat else {}
         for plan in self.plans:
             if not self._matches(plan, query):
@@ -209,10 +248,23 @@ class PlanMixin:
                     self._row_option[child] = (plan, fid)
         self._update_plan_summary()
         if hasattr(self, "filter_note"):
-            self.filter_note.set(f"showing {mods_shown} of {len(self.plans)} mods" if query else "")
+            self.filter_note.set(f"showing {mods_shown} of {len(self.plans)} mods" if filtered else "")
         if query:
             for row in self._row_plan:
                 self.tree.item(row, open=True)
+        elif rebuilt:
+            for row, plan in self._row_plan.items():
+                if plan.entry.key in was_open:
+                    self.tree.item(row, open=True)
+        if rebuilt:
+            for row, plan in self._row_plan.items():
+                if plan.entry.key == picked_key:
+                    self.tree.selection_set(row)
+                    break
+            self.tree.update_idletasks()
+            self.tree.yview_moveto(top)
+        if getattr(self, "jobs", None):
+            self._map_job_rows()  # download progress keeps showing in the new rows
 
     def _update_plan_summary(self) -> None:
         jobs = jobs_for(self.plans)
@@ -255,6 +307,7 @@ class PlanMixin:
     def _mark_chosen(self, plan: ModPlan) -> None:
         plan.needs_choice = False
         plan.reason = "your choice" if plan.selected else "nothing ticked - mod left out"
+        plan.chosen_by_user = True
         for row, p in self._row_plan.items():
             if p is plan:
                 self.tree.item(row, tags=())
@@ -445,6 +498,8 @@ class PlanMixin:
 
     def choose_from_here(self, plan) -> None:
         """Choose options again, starting at this mod (and on through the rest)."""
+        if self.busy_with_list("choosing options"):
+            return
         with_options = [p for p in self.plans if not p.error and not p.skipped and len(visible_options(p.options)) > 1]
         if plan not in with_options:
             with_options = [p for p in self.plans if not p.error and not p.skipped and p.options]

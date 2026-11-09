@@ -24,8 +24,12 @@ class ToolsMixin:
                                             filetypes=[("Text files", "*.txt")])
         if not path:
             return
-        Path(path).write_text(sharing.export_text(self.plans, self._target_game(), title=Path(path).stem),
-                              encoding="utf-8")
+        try:
+            Path(path).write_text(sharing.export_text(self.plans, self._target_game(), title=Path(path).stem),
+                                  encoding="utf-8")
+        except OSError as err:
+            messagebox.showerror("Share", f"Couldn't save it there: {err}", parent=self._parent())
+            return
         messagebox.showinfo("Share", f"Saved {path}.\n\nSend it to anyone with SkyrimDownloaded: opening "
                             "it and pressing Look up mods gives them exactly the same files.", parent=self._parent())
 
@@ -45,6 +49,7 @@ class ToolsMixin:
         cancel = self.new_operation()
         cache = nexuscache.shared()
         list_text = self.list_text.get("1.0", "end-1c")
+        install = self.install_var.get()  # read here: Tk only on this thread
 
         def work():
             plugins = listcheck.count_plugins(
@@ -59,7 +64,7 @@ class ToolsMixin:
                 "sizes": listcheck.size_by_texture(plans),
                 "textured": listcheck.textured_mods(plans),
                 "installed": installed,
-                "space": self._space_for(target, jobs_for(plans)) if target else [],
+                "space": self._space_for(target, jobs_for(plans), install) if target else [],
             }
             cache.flush()
             self.events.put(("listcheck", result))
@@ -74,6 +79,8 @@ class ToolsMixin:
 
     def nexus_bulk(self, action: str) -> None:
         """Track or endorse every mod shown (all of them, or the ones matching the search)."""
+        if self.busy_with_list("tracking or endorsing"):
+            return
         if self.client is None:
             messagebox.showinfo("Nexus", "Log in first.", parent=self._parent())
             return
@@ -123,8 +130,16 @@ class ToolsMixin:
     def read_crash_log(self) -> None:
         """Pick a crash log (the newest is offered first) and show which mods it names."""
         from .. import crashlog
-        newest = crashlog.newest_logs(1)
-        folders = crashlog.log_folders()
+        extra = []  # .NET Script Framework writes its logs into the game's Data folder (MO2: overwrite)
+        try:
+            inst = make_target("mo2", self.settings.game,
+                               **{k: v.get().strip() for k, v in self.path_vars.items()}).instance_dir
+            if inst:
+                extra.append(inst / "overwrite" / "NetScriptFramework" / "Crash")
+        except ManagerError:
+            pass
+        newest = crashlog.newest_logs(1, extra)
+        folders = crashlog.log_folders(extra)
         path = filedialog.askopenfilename(
             title="Pick a crash log (Crash Logger: crash-....log; .NET Script Framework: Crash_....txt)",
             initialdir=str(newest[0].parent if newest else folders[0] if folders else Path.home()),

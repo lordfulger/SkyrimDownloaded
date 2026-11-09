@@ -315,6 +315,7 @@ class ChoiceDialog(tk.Toplevel):
         main = primary_file(other.options)
         other.selected = [main.file_id] if main else []
         other.reason = f"included - {self.plan.title} needs it"
+        other.chosen_by_user = True
         if other in self.later:
             self.later.remove(other)
         return "Included \u2713"
@@ -366,6 +367,7 @@ class ChoiceDialog(tk.Toplevel):
         self._spread_pick(plan)
         plan.needs_choice = False
         plan.reason = "your choice" if plan.selected else "nothing ticked - mod left out"
+        plan.chosen_by_user = True
         if plan in self.later:
             self.later.remove(plan)
 
@@ -438,6 +440,7 @@ class ChoiceDialog(tk.Toplevel):
             return
         for p in ok:
             p.needs_choice = False
+            p.chosen_by_user = True
             if not p.reason.startswith("accepted"):
                 p.reason = "accepted the ticked files"
             if p in self.later:

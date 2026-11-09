@@ -84,6 +84,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         help_btn = ttk.Menubutton(top_row, text="Help \u25be")
         help_menu = tk.Menu(help_btn, tearoff=False)
         help_menu.add_command(label="Read a Skyrim crash log\u2026", command=self.read_crash_log)
+        help_menu.add_command(label="Keyboard shortcuts", command=self.show_shortcuts)
         self.daily_var = tk.BooleanVar(value=bool(self.settings.check_mod_updates))
         help_menu.add_checkbutton(label="Check my mods for new files once a day (1 request)",
                                   variable=self.daily_var, command=self._daily_toggled)
@@ -273,7 +274,8 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         panes.add(plan, weight=3)
         tools = ttk.Frame(plan)
         tools.pack(fill="x", padx=6, pady=4)
-        ttk.Button(tools, text="Choose options\u2026", command=self.walk_choices).pack(side="left")
+        ttk.Button(tools, text="Choose options\u2026",
+                   command=lambda: self.busy_with_list("choosing options") or self.walk_choices()).pack(side="left")
         self.compat_btn = ttk.Button(tools, text="Check compatibility",
                                      command=lambda: self.check_compatibility(auto=False))
         self.compat_btn.pack(side="left", padx=4)
@@ -309,6 +311,10 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
             self.list_find_entry.bind(seq, self.find)
         self.filter_var.trace_add("write", lambda *a: self._filter_changed())
         ttk.Button(find, text="\u2715", width=3, command=lambda: self.filter_var.set("")).pack(side="left")
+        self.show_var = tk.StringVar(value=SHOW_FILTERS[0])
+        show_box = ttk.Combobox(find, textvariable=self.show_var, values=SHOW_FILTERS, state="readonly", width=22)
+        show_box.pack(side="left", padx=(6, 0))
+        show_box.bind("<<ComboboxSelected>>", lambda e: self._fill_tree())
         bulk_btn = ttk.Menubutton(find, text="Bulk actions \u25be")
         bulk = tk.Menu(bulk_btn, tearoff=False)
         bulk.add_command(label="Tick all suggested patches", command=lambda: self.bulk("patches"))
@@ -317,6 +323,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         bulk.add_command(label="Keep only the main files", command=lambda: self.bulk("main-only"))
         bulk.add_command(label="Use my texture size (also for mods I picked by hand)",
                          command=lambda: self.bulk("texture"))
+        bulk.add_command(label="Undo the last bulk action (Ctrl+Z in the list)", command=self.undo_bulk)
         bulk.add_separator()
         bulk.add_command(label="Track every mod on Nexus (get told about updates)",
                          command=lambda: self.nexus_bulk("track"))
@@ -349,6 +356,14 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.tree.bind("<<TreeviewSelect>>", self._show_details)
         self.tree.bind("<Double-1>", self._tree_double)
         self.tree.bind("<Button-3>", self._tree_menu)  # right-click: Choose options from here
+        self.tree.bind("<Control-z>", self.undo_bulk)
+        self.tree.bind("<Control-Z>", self.undo_bulk)
+        # Shortcuts in the main window (not in pop-ups, and not while typing in the list for Ctrl+Z)
+        for seq, action in (("<Control-o>", self.open_list), ("<Control-O>", self.open_list),
+                            ("<Control-s>", self.save_list), ("<Control-S>", self.save_list),
+                            ("<F5>", lambda: self.busy_with_list("looking up") or self.lookup())):
+            self.root.bind_all(seq, lambda e, a=action: self._main_shortcut(e, a))
+            self.list_text.bind(seq, lambda e, a=action: self._main_shortcut(e, a))  # before the text box's own keys
         AutoScroll(self.tree)
         split.add(frame, weight=3)
 
@@ -393,11 +408,49 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         threading.Thread(target=work, daemon=True).start()
 
     def new_operation(self) -> threading.Event:
-        """A fresh Stop signal for the work about to start (Nexus requests follow it too)."""
+        """A fresh Stop signal for the work about to start (Nexus requests follow it too).
+        Stop reaches every job still running, not just the newest."""
+        live = [e for e in getattr(self, "_cancels", []) if not e.is_set()] if self.busy else []
         self.cancel = threading.Event()
+        self._cancels = live + [self.cancel]
         if self.client is not None:
             self.client.cancel = self.cancel
         return self.cancel
+
+    def show_shortcuts(self) -> None:
+        messagebox.showinfo("Keyboard shortcuts", "\n".join([
+            "Main window",
+            "   Ctrl+O   open a list          Ctrl+S   save the list",
+            "   F5   look up mods                Ctrl+F   search (in the list: find)",
+            "   Ctrl+Z   in the files list: undo the last bulk action",
+            "   Right-click a mod: Choose options from here",
+            "",
+            "Choose options",
+            "   1-9   tick / untick a file      Enter   next      Backspace   back",
+            "   S   skip for now      Ctrl+F   find a file",
+        ]), parent=self._parent())
+
+    def _main_shortcut(self, event, action):
+        try:
+            if event.widget.winfo_toplevel() is not self.root:
+                return None  # a pop-up window is in front
+        except (AttributeError, tk.TclError):
+            pass
+        action()
+        return "break"
+
+    def stop_all(self) -> None:
+        for event in getattr(self, "_cancels", []) + [self.cancel]:
+            event.set()
+
+    def busy_with_list(self, what: str) -> bool:
+        """True (and says so) while a lookup or downloads are running: things that replace or
+        change the mods would pull them out from under it."""
+        if self.busy:
+            self.status_var.set(f"Wait for the current job to finish (or press Stop) before {what}.")
+            self.root.bell()
+            return True
+        return False
 
     def _set_busy(self, busy: bool) -> None:
         self._busy_count = max(0, getattr(self, "_busy_count", 0) + (1 if busy else -1))
@@ -494,9 +547,19 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                                            f"{100 * done // max(total, 1)}%"))
 
         def work():
-            path = appupdate.download_update(found, target.parent, progress=progress)
+            try:
+                path = appupdate.download_update(found, target.parent, progress=progress)
+            except Exception as err:
+                self.events.put(("update-failed", str(err)))
+                return
             self.events.put(("update-ready", (path, target)))
         self._background(work)
+
+    def _update_failed(self, error) -> None:
+        self.update_btn.configure(state="normal")
+        self.status_var.set("The update didn't download.")
+        messagebox.showerror("Update", f"The new version didn't download: {error}\n\nTry again, or get it "
+                             "from the releases page.", parent=self._parent())
 
     def _update_ready(self, path, target) -> None:
         log.info("Update downloaded to %s; swapping into %s", path, target)
@@ -761,7 +824,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                 "login-retry": self._login_retry, "updates": self._updates_done,
                 "compat": self._compat_done, "games": self._games_found, "found": self._apply_found,
                 "requirements": self._requirements_done, "finished": self._finished,
-                "app-update": self._app_update_found, "update-ready": self._update_ready, "collection": self._collection_loaded,
+                "app-update": self._app_update_found, "update-ready": self._update_ready, "update-failed": self._update_failed, "collection": self._collection_loaded,
             }.get(kind)
             if handler is None:
                 log.warning("Unknown event %s", kind)

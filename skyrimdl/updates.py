@@ -107,6 +107,10 @@ def apply(updates: list[Update]) -> int:
         if u.new is None or u.old.file_id not in u.plan.selected:
             continue
         sel = u.plan.selected
+        if u.new.file_id == u.old.file_id:  # the same file, re-uploaded: nothing to swap
+            u.plan.reason = "updated file (same file on Nexus)"
+            n += 1
+            continue
         if u.new.file_id in sel:
             sel.remove(u.old.file_id)
         else:

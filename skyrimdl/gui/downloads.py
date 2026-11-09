@@ -104,14 +104,15 @@ class DownloadMixin:
             log.exception("reading MO2's installed mods")
             return {}
 
-    def _space_for(self, target, jobs) -> list:
+    def _space_for(self, target, jobs, install: bool | None = None) -> list:
         """Disk space for these downloads (and for installing them, with MO2)."""
         from .. import listcheck
         try:
             downloads = target.downloads_dir()
         except ManagerError:
             downloads = None
-        mods = target.mods_dir() if hasattr(target, "mods_dir") and self.install_var.get() else None
+        install = self.install_var.get() if install is None else install
+        mods = target.mods_dir() if hasattr(target, "mods_dir") and install else None
         picked = {id(j.option) for j in jobs}
 
         class _Plan:  # just the files of these jobs
@@ -222,7 +223,8 @@ class DownloadMixin:
         self.new_operation()
         runner = Runner(self.client, target, mode=self.mode_var.get(), install=self.install_var.get(),
                         parallel=self.settings.parallel,
-                        on_event=lambda job: self.events.put(("job", job)), cancel=self.cancel)
+                        on_event=lambda job: self.events.put(("job", job)), cancel=self.cancel,
+                        category_separators=target.name == "Mod Organizer 2" and self.category_var.get())
 
         def work():
             runner.run(failed)
@@ -230,6 +232,6 @@ class DownloadMixin:
         self._background(work)
 
     def stop(self) -> None:
-        self.cancel.set()
+        self.stop_all()
         self.status_var.set("Stopping…")
 

@@ -93,7 +93,9 @@ def build_list(instance: Path, mods_dir: Path, game: str, profile: str | None = 
             lines.append(f"# not from Nexus: {name}")
             built.not_nexus += 1
             continue
-        line = f"https://www.nexusmods.com/{game}/mods/{mod_id}"
+        from .managers.mo2 import nexus_domain
+        domain = nexus_domain(general.get("gamename", ""), game)  # e.g. an LE mod in an SE setup
+        line = f"https://www.nexusmods.com/{domain}/mods/{mod_id}"
         if files:
             line += " | file=" + ",".join(str(f) for f in dict.fromkeys(files))
         if not on:

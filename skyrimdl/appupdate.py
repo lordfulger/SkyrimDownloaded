@@ -129,14 +129,25 @@ def update_target(current: Path) -> Path:
 def download_update(found: NewVersion, folder: Path, progress=None, cancel=None) -> Path:
     """Download the new .exe next to where it will go, and check its checksum."""
     from .downloader import download
-    dest = folder / "SkyrimDownloaded.update.exe"
-    path = download([found.exe_url], dest, partial_dir=folder / ".skyrimdl-partial",
-                    expected_size=found.size, progress=progress, cancel=cancel)
+    safe = "".join(c for c in str(found.version) if c.isalnum() or c in ".-") or "new"
+    dest = folder / f"SkyrimDownloaded.update-{safe}.exe"  # per version: never resume another one's part
+    partial = folder / ".skyrimdl-partial"
+    try:
+        path = download([found.exe_url], dest, partial_dir=partial,
+                        expected_size=found.size, progress=progress, cancel=cancel)
+    finally:
+        try:
+            partial.rmdir()  # only if empty
+        except OSError:
+            pass
+    data = path.read_bytes()
     if found.sha256:
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        if digest.lower() != found.sha256.lower():
+        if hashlib.sha256(data).hexdigest().lower() != found.sha256.lower():
             path.unlink()
             raise ValueError("The downloaded update didn't match its checksum, so it wasn't used. Try again.")
+    elif not data.startswith(b"MZ") or len(data) < 1_000_000:
+        path.unlink()  # no checksum to go by, and it isn't a program: don't put it in place
+        raise ValueError("The download wasn't a complete SkyrimDownloaded.exe, so it wasn't used.")
     return path
 
 
@@ -180,8 +191,9 @@ def start_swap(new_exe: Path, target: Path, pid: int, *, start_after: bool = Tru
     script = Path(tempfile.gettempdir()) / f"skyrimdl-update-{pid}.cmd"
     script.write_text(SWAP_SCRIPT.replace("\n", "\r\n"), encoding="ascii")
     flags = 0x08000000 | 0x00000200  # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
-    args = ["cmd.exe", "/c", str(script), str(new_exe), str(target), str(pid)]
-    if not start_after:
-        args.append("nostart")
-    return subprocess.Popen(args, close_fds=True, env=clean_env(),
+    # One command line, quoted the way cmd.exe wants: /s strips just the outer pair of quotes, so
+    # paths with spaces (C:\Users\John Smith\AppData\Local\Temp) survive.
+    inner = f'"{script}" "{new_exe}" "{target}" {int(pid)}' + ("" if start_after else " nostart")
+    command = f'cmd.exe /d /s /c "{inner}"'
+    return subprocess.Popen(command, close_fds=True, env=clean_env(),
                             creationflags=flags if sys.platform == "win32" else 0)

@@ -103,6 +103,21 @@ class GameTarget:
         return f"{version_text(self.version)} ({FAMILY_LABEL.get(self.family, self.family)}, {self.store})"
 
 
+#: Builds Skyrim actually had. A "1.5.12" or "1.6.200" in a file name is the mod's own version.
+SE_BUILDS = {3, 16, 23, 39, 50, 53, 62, 73, 80, 97}
+
+
+def is_game_build(v) -> bool:
+    _, minor, build = v[:3]
+    if minor == 5:
+        return build in SE_BUILDS
+    if minor == 6:
+        return build >= 317     # the first Anniversary Edition build
+    if minor == 4:
+        return build == 15      # Skyrim VR
+    return False
+
+
 # -- reading a file's name -------------------------------------------------
 
 _SEP = r"[._]"
@@ -168,7 +183,10 @@ def read_hints(text: str, *, from_description: bool = False) -> Hints:
     found = []
     for m in _FULL_VERSION.finditer(text):
         minor, build = next((m.group(i), m.group(i + 1)) for i in (1, 3, 5) if m.group(i))
-        found.append((m.start(), m.end(), (1, int(minor), int(build))))
+        v = (1, int(minor), int(build))
+        if not is_game_build(v):
+            continue  # "Mod v1.5.12" is the mod's own version, not a game version
+        found.append((m.start(), m.end(), v))
     for m in _AE_BUILD.finditer(text):
         if not any(a <= m.start(1) < b for a, b, _ in found):
             found.append((m.start(1), m.end(1), (1, 6, int(m.group(1)))))

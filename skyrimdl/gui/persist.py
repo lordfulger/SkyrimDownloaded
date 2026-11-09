@@ -171,6 +171,8 @@ class PersistMixin:
         self.status_var.set(msg + ".")
 
     def start_over(self) -> None:
+        if self.busy_with_list("starting over"):
+            return
         if (self.plans or self.list_text.get("1.0", "end-1c").strip()) and not messagebox.askyesno(
                 "Start over", "Clear the mod list, the looked-up mods and your choices?\n\n"
                 "(A list you saved to a file stays on disk.)", parent=self._parent()):

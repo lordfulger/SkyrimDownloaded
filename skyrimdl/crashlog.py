@@ -16,7 +16,7 @@ from pathlib import Path
 _DLL = re.compile(r"(?:0x[0-9A-F]+\s+|->\s*|\(\s*|^\s*)([A-Za-z0-9_][A-Za-z0-9_\-. ]{0,80}?\.dll)\s*\+",
                   re.I | re.M)
 # File: "Mod.esp", Modified by: A.esm -> B.esp, (Mod.esp), [Mod.esp]
-_PLUGIN = re.compile(r"""(?:"|->\s|<-\s|:\s|\(|\[)\s*([^\s"'()\[\]<>|:][^"'()\[\]\r\n<>|:]{0,118}?\.(?:esp|esm|esl))\b""",
+_PLUGIN = re.compile(r"""(?:"|`|->\s|<-\s|:\s|\(|\[)\s*([^\s"`()\[\]<>|:][^"`()\[\]\r\n<>|:]{0,118}?\.(?:esp|esm|esl))\b""",
                      re.I)
 _EXCEPTION = re.compile(r"(Unhandled (?:native )?exception[^\r\n]*)", re.I)
 # Where the long "everything that's loaded" lists start.
@@ -184,18 +184,34 @@ def preview_index(plans, cache) -> dict:
     return out
 
 
-def log_folders() -> list[Path]:
-    """Where crash logs usually are."""
-    docs = Path(os.environ.get("USERPROFILE") or Path.home()) / "Documents" / "My Games"
+def documents_folder() -> Path:
+    """The real Documents folder (often moved to OneDrive), where Skyrim keeps its logs."""
+    import sys
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
+            if ctypes.windll.shell32.SHGetFolderPathW(None, 5, None, 0, buf) == 0 and buf.value:  # CSIDL_PERSONAL
+                return Path(buf.value)
+        except Exception:
+            pass
+    return Path(os.environ.get("USERPROFILE") or Path.home()) / "Documents"
+
+
+def log_folders(extra: list | None = None) -> list[Path]:
+    """Where crash logs usually are (plus ``extra`` places, e.g. MO2's overwrite folder)."""
+    docs = documents_folder() / "My Games"
     out = []
     for game in ("Skyrim Special Edition", "Skyrim Special Edition GOG", "Skyrim VR"):
         out += [docs / game / "SKSE", docs / game / "SKSE" / "Crashlogs"]
+    out += list(extra or [])
     return [p for p in out if p.is_dir()]
 
 
-def newest_logs(limit: int = 5) -> list[Path]:
+def newest_logs(limit: int = 5, extra: list | None = None) -> list[Path]:
     logs = []
-    for folder in log_folders():
+    for folder in log_folders(extra):
         try:
             logs += [p for p in folder.iterdir() if p.suffix.lower() in (".log", ".txt") and "crash" in p.name.lower()]
         except OSError:

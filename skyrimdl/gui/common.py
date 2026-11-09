@@ -36,6 +36,8 @@ from ..selection import (TEXTURE_SIZES, annotate, for_other_versions, human_size
 
 
 NO_TEXTURE_PREF = "Any size"
+SHOW_FILTERS = ["Show: all mods", "Still to choose", "Problems (errors, warnings)", "New files on Nexus",
+                "Left out", "Patches ticked by the app"]
 API_KEY_PAGE = "https://www.nexusmods.com/settings/api-keys"
 ON, OFF = "\u2611", "\u2610"  # ☑ ☐
 # A Nexus personal API key: one long run of base64-ish characters, no spaces.

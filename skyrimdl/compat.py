@@ -205,6 +205,40 @@ def check(plans, client=None, *, workers: int = 4) -> Report:
     if not active:
         return report
     pats = {id(p): _patterns(p.mod.name) for p in active}
+    # Word index: a mod can only be named in a text that has the first word of one of its names.
+    # Checking just those keeps this fast for lists of hundreds of mods.
+    first_words: dict[str, set] = {}
+    alias_words: dict[int, list] = {}  # id(plan): [set of words of each name]
+    always: list = []
+    for p in active:
+        sets = []
+        for text, _ in aliases(p.mod.name):
+            words = re.findall(r"[a-z0-9]+", text.lower())
+            if not words:
+                sets = None
+                break
+            sets.append(set(words))
+        if not sets:
+            always.append(p)
+            continue
+        alias_words[id(p)] = sets
+        for ws in sets:
+            first_words.setdefault(min(ws), set()).add(id(p))
+    order = {id(p): i for i, p in enumerate(active)}
+
+    def could_mention(*texts, ids=frozenset()):
+        """The mods (in list order) a text could name or link to: all the words of one of
+        their names are in it (or it links to their page)."""
+        tokens = set()
+        for text in texts:
+            tokens |= set(re.findall(r"[a-z0-9]+", (text or "").lower()))
+        hit = {id(p) for p in always}
+        for word in tokens:
+            for pid in first_words.get(word, ()):
+                if pid not in hit and any(ws <= tokens for ws in alias_words[pid]):
+                    hit.add(pid)
+        hit |= {id(p) for p in active if p.entry.mod_id in ids}
+        return sorted((p for p in active if id(p) in hit), key=lambda p: order[id(p)])
     by_mod = {(p.entry.game, p.entry.mod_id): p for p in active}
     seen: set = set()
 
@@ -242,7 +276,7 @@ def check(plans, client=None, *, workers: int = 4) -> Report:
                 continue
             raw_desc = str(opt.raw.get("description") or "")
             ids = nexus_mod_ids(raw_desc, game)
-            for other in active:
+            for other in could_mention(opt.name, opt.file_name, opt.description, ids=ids):
                 if other is plan:
                     continue
                 o_pats = pats[id(other)]
@@ -271,7 +305,7 @@ def check(plans, client=None, *, workers: int = 4) -> Report:
             continue
         page = bbcode_to_text(raw, keep_links=True)
         ids = nexus_mod_ids(raw, game)
-        for other in active:
+        for other in could_mention(page, ids=ids):
             if other is plan:
                 continue
             spots = _mentions(page, pats[id(other)], ids, other.entry.mod_id)

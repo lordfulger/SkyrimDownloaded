@@ -48,6 +48,7 @@ def _plan_to(p: ModPlan) -> dict:
         "needs_choice": p.needs_choice,
         "reason": p.reason,
         "error": p.error,
+        "chosen": p.chosen_by_user,
     }
 
 
@@ -60,6 +61,7 @@ def _plan_from(d: dict) -> ModPlan:
         selected=[int(x) for x in d.get("selected") or []],
         needs_choice=bool(d.get("needs_choice")), reason=d.get("reason") or "",
         error=d.get("error"),
+        chosen_by_user=bool(d.get("chosen", d.get("reason") in ("your choice", "your earlier choice"))),
     )
 
 

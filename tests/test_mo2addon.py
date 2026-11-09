@@ -61,6 +61,9 @@ class FakeModList:
     def getMod(self, name):
         return self.mods.get(name)
 
+    def priority(self, name):
+        return self.order.index(name)
+
     def setPriority(self, name, priority):
         self.order.remove(name)
         self.order.insert(min(priority, len(self.order)), name)
@@ -157,13 +160,26 @@ class AddonTests(unittest.TestCase):
         self.assertEqual(org.installed, ["Pretty Textures 2K-1000-2-0.7z", "Patch-1000-1-1.zip",
                                          "SkyUI_5_2_SE-12604-5-2SE.7z"])
         self.assertEqual(result["skipped"], ["USSEP-266-4-3-2.7z"])
-        # Left pane: the list's mods at the bottom, in list order; all switched on.
+        # Left pane: the new mods at the bottom, in list order, under the list's separators;
+        # USSEP was already installed, so it stays where you had it. All switched on.
         pt2k, patch = "Pretty Textures - Pretty Textures 2K", "Pretty Textures - USSEP Patch, for real"
-        # Separators from the list's "## ..." headings, each followed by its mods.
-        self.assertEqual(org.list.order, ["Something else", "01 - TEXTURES_separator", pt2k, patch,
-                                          "02 - INTERFACE_separator", "SkyUI", "USSEP"])
+        self.assertEqual(org.list.order, ["Something else", "USSEP", "01 - TEXTURES_separator", pt2k, patch,
+                                          "02 - INTERFACE_separator", "SkyUI"])
         self.assertEqual(org.list.active, {pt2k, patch, "SkyUI", "USSEP"})
         self.assertEqual(len(jobs), 4)
+
+    def test_existing_separator_keeps_its_place(self):
+        self.download_list()
+        # You already have "02 - INTERFACE" with your own mod under it, and more below.
+        mine = [FakeMod(n, "") for n in ("02 - INTERFACE_separator", "My UI Tweak", "Other_separator", "Late Mod")]
+        org = FakeOrganizer(self.downloads, mine)
+        steps = self.plugin.make_steps(org, str(self.downloads), self.plugin.read_plan(str(self.downloads)))
+        self.plugin.run(org, str(self.downloads), steps)
+        order = org.list.order
+        # SkyUI goes after your own mod under the existing separator; nothing of yours moves.
+        self.assertEqual(order[:6], ["02 - INTERFACE_separator", "My UI Tweak", "SkyUI",
+                                     "Unofficial Skyrim Special Edition Patch", "Other_separator", "Late Mod"])
+        self.assertEqual(order[6], "01 - TEXTURES_separator")  # a new separator: at the bottom
 
     def test_cancelled_install_asks_and_missing_downloads_are_reported(self):
         self.download_list()

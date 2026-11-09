@@ -209,6 +209,8 @@ class DiscoverMixin:
     # -- suggestions ----------------------------------------------------------------------
 
     def find_suggestions(self) -> None:
+        if self.busy_with_list("looking for suggestions"):
+            return
         if self.client is None:
             self.discover_note.set("Log in first.")
             return
@@ -223,16 +225,24 @@ class DiscoverMixin:
         self.discover_note.set("Looking for patches and add-ons for your mods…")
 
         def work():
-            found = discover.suggest(
-                client, plans, nexuscache.shared(), adult=adult, hidden=hidden, cancel=cancel,
-                on_progress=lambda d, t: d % 20 == 0 and self.events.put(
-                    ("status", f"Suggestions: checked {d} of {t} mods")))
-            nexuscache.shared().flush()
-            self.events.put(("discover-suggest", found))
+            found = None
+            try:
+                found = discover.suggest(
+                    client, plans, nexuscache.shared(), adult=adult, hidden=hidden, cancel=cancel,
+                    on_progress=lambda d, t: d % 20 == 0 and self.events.put(
+                        ("status", f"Suggestions: checked {d} of {t} mods")))
+                nexuscache.shared().flush()
+            except NexusError as err:  # stopped, or Nexus didn't answer
+                log.warning("Suggestions: %s", err)
+            finally:
+                self.events.put(("discover-suggest", found))
         self._background(work)
 
     def _suggest_done(self, found) -> None:
         self.suggest_btn.configure(state="normal")
+        if found is None:
+            self.discover_note.set("Stopped, or Nexus didn't answer - press Find suggestions to try again.")
+            return
         tree = self.suggest_tree
         tree.delete(*tree.get_children())
         self._suggest_rows.clear()
@@ -257,6 +267,8 @@ class DiscoverMixin:
     # -- goes well with your list -------------------------------------------------------
 
     def find_goes_well(self) -> None:
+        if self.busy_with_list("looking for mods that go well"):
+            return
         if self.client is None:
             self.discover_note.set("Log in first.")
             return
@@ -271,15 +283,24 @@ class DiscoverMixin:
         self.discover_note.set("Looking through Nexus Collections that use your mods\u2026")
 
         def work():
-            found = discover.goes_well(
-                client, plans, nexuscache.shared(), adult=adult, hidden=hidden, cancel=cancel,
-                on_progress=lambda d, t: self.events.put(("status", f"Goes well with: read collections for {d} of {t} of your mods")))
-            nexuscache.shared().flush()
-            self.events.put(("discover-goes", found))
+            found = None
+            try:
+                found = discover.goes_well(
+                    client, plans, nexuscache.shared(), adult=adult, hidden=hidden, cancel=cancel,
+                    on_progress=lambda d, t: self.events.put(
+                        ("status", f"Goes well with: read collections for {d} of {t} of your mods")))
+                nexuscache.shared().flush()
+            except NexusError as err:
+                log.warning("Goes well with: %s", err)
+            finally:
+                self.events.put(("discover-goes", found))
         self._background(work)
 
     def _goes_done(self, found) -> None:
         self.goes_btn.configure(state="normal")
+        if found is None:
+            self.discover_note.set("Stopped, or Nexus didn't answer - press Find mods that go well to try again.")
+            return
         tree = self.goes_tree
         tree.delete(*tree.get_children())
         self._goes_rows.clear()

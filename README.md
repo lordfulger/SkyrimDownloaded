@@ -100,12 +100,15 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
    - In the main list, tick or untick a file by clicking its box or double-clicking it. **Choose options…** opens the window again.
    - **Click a mod** to see its Nexus page in the panel on the right: its picture, author, version, last update, endorsements, downloads, summary and full description. The panel also shows its requirements (in your list or not) and its links with your other mods. Click a file to see that file's details.
    - **Search** (or **Ctrl+F**) filters the mods by name, author, your note or file name. **Enter** selects the first mod shown, **Esc** clears it.
+   - **Show:** next to Search narrows the list to mods still to choose, mods with problems (errors or warnings), mods with new files on Nexus, mods left out, or patches the app ticked. Bulk actions apply to what's shown.
+   - The list keeps which mods are open, the one you picked and where you'd scrolled when it refreshes.
    - **Bulk actions ▾** applies one change to every mod shown (all of them, or just the ones matching the search):
      - tick all suggested patches
      - leave out every optional file
      - untick files for other game versions
      - keep only the main files
      - expand or collapse everything
+     - **Undo the last bulk action** (or Ctrl+Z in the list)
      - track every mod on Nexus (the site then tells you about updates), or endorse every mod. One request per mod.
 6. **Check list** (optional) checks the whole list before you download:
    - **Plugins:** counts the regular plugins (.esp / .esm) in the files you picked, from each archive's file list on Nexus, against Skyrim's limit of about 254. Light plugins (.esl, or files that say they're ESL-flagged) don't count. Plugins inside installer options are counted separately ("up to"), as they depend on what you pick there.
@@ -117,6 +120,16 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
 7. **Check compatibility** (optional, whenever you like) shows how the mods in your list relate to each other (see below). It then offers to **review** the mods involved, with suggested patches already ticked.
 8. **Start downloads.** For "Mod manager downloads", open MO2 or Vortex on your Skyrim setup first. When downloading here, each file shows its speed and time left, and the bottom bar shows the total. If you stop part way, start again later and it carries on where it left off. A download that breaks off is tried again by itself (up to 3 more times, carrying on from where it got to); files that still fail can be tried again at the end.
 9. **Sort with LOOT** once the mods are installed, to sort the load order (see below).
+
+## Keyboard shortcuts
+
+| Where | Keys |
+|---|---|
+| Main window | **Ctrl+O** open a list, **Ctrl+S** save it, **F5** look up mods, **Ctrl+F** search (in the mod list: find) |
+| Files list | **Ctrl+Z** undo the last bulk action, **right-click** a mod: Choose options from here |
+| Choose options | **1-9** tick a file, **Enter** next, **Backspace** back, **S** skip for now, **Ctrl+F** find a file |
+
+Help ▾ → Keyboard shortcuts shows them too.
 
 ## Picking files for your Skyrim version
 

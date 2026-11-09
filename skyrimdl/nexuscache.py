@@ -19,6 +19,9 @@ from pathlib import Path
 
 FORMAT = 1
 DEFAULT_MAX_AGE_DAYS = 7
+KEEP = 30 * 86400            # entries older than this are dropped when the app starts
+KEEP_PREVIEWS = 366 * 86400  # archive file lists (they don't change) are kept a year
+FLUSH_AFTER = 15.0           # seconds: write once a burst of lookups settles
 
 
 def cache_dir() -> Path:
@@ -42,6 +45,13 @@ class DiskCache:
                 self._entries = dict(data.get("entries") or {})
         except (OSError, ValueError, AttributeError):
             pass
+        # Drop what's too old to be used again, so the file doesn't keep growing.
+        now = time.time()
+        old = [k for k, e in self._entries.items()
+               if now - float((e or {}).get("t") or 0) > (KEEP_PREVIEWS if k.startswith("preview:") else KEEP)]
+        for k in old:
+            del self._entries[k]
+        self._dirty = bool(old)
         atexit.register(self.flush)
 
     def get(self, key: str, max_age: float | None = None):
@@ -70,7 +80,7 @@ class DiskCache:
             self._entries[key] = {"t": time.time(), "data": data}
             self._dirty = True
             if self._timer is None:  # write a moment later, once a burst of lookups settles
-                self._timer = threading.Timer(3.0, self.flush)
+                self._timer = threading.Timer(FLUSH_AFTER, self.flush)
                 self._timer.daemon = True
                 self._timer.start()
 
@@ -93,11 +103,12 @@ class DiskCache:
             self._timer = None
             if not self._dirty:
                 return
-            data = json.dumps({"format": FORMAT, "entries": self._entries})
+            snapshot = dict(self._entries)  # write it out without holding up lookups
             self._dirty = False
+        data = json.dumps({"format": FORMAT, "entries": snapshot})
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".tmp")
+            tmp = self.path.with_suffix(f".{threading.get_ident()}.tmp")  # two writers never share one
             tmp.write_text(data, encoding="utf-8")
             os.replace(tmp, self.path)
         except OSError:

@@ -19,6 +19,19 @@ class ListMixin:
         self.list_text.insert("1.0", text)
 
     def open_list(self) -> None:
+        if self.busy_with_list("opening another list"):
+            return
+        current = self.list_text.get("1.0", "end-1c").strip()
+        if current and not self._list_is_saved():
+            answer = messagebox.askyesnocancel(
+                "Open list", "The list in the window has changes that aren't saved to a file.\n\n"
+                "Yes: save them first\nNo: open another list anyway", parent=self._parent())
+            if answer is None:
+                return
+            if answer:
+                self.save_list()
+                if not self._list_is_saved():
+                    return  # saving was cancelled
         path = filedialog.askopenfilename(title="Open mod list",
                                           filetypes=[("Text files", "*.txt *.md *.csv"), ("All files", "*")])
         if path:
@@ -28,9 +41,14 @@ class ListMixin:
         path = filedialog.asksaveasfilename(title="Save mod list", defaultextension=".txt",
                                             filetypes=[("Text files", "*.txt")])
         if path:
-            Path(path).write_text(self.list_text.get("1.0", "end-1c"), encoding="utf-8")
+            try:
+                Path(path).write_text(self.list_text.get("1.0", "end-1c"), encoding="utf-8")
+            except OSError as err:
+                messagebox.showerror("Save mod list", f"Couldn't save it there: {err}", parent=self._parent())
+                return
             self.list_path = Path(path)
             self.list_label.set(path)
+            self.status_var.set(f"Saved the list to {path}.")
 
     def _list_is_saved(self) -> bool:
         if not self.list_path or not self.list_path.is_file():
@@ -43,6 +61,8 @@ class ListMixin:
 
     def import_collection(self) -> None:
         """Start (or add to) the list from a Nexus Collection's link."""
+        if self.busy_with_list("starting from a collection"):
+            return
         if self.client is None:
             messagebox.showinfo("Collection", "Log in first.", parent=self._parent())
             return
@@ -71,6 +91,8 @@ class ListMixin:
     def build_from_mo2(self) -> None:
         """Make the list from your MO2 setup: the profile's mods in order, under its separators,
         with the exact files installed."""
+        if self.busy_with_list("building the list from MO2"):
+            return
         from .. import mo2import
         try:
             target = make_target("mo2", self.settings.game, **{k: v.get().strip() for k, v in self.path_vars.items()})
@@ -103,10 +125,10 @@ class ListMixin:
         if current:
             answer = messagebox.askyesnocancel(
                 "Build from MO2", f"Found {built.mods} mods from Nexus in \"{profile}\".\n\n"
-                "Yes: replace your list with them\nNo: add them to the end of your list", parent=self._parent())
+                "Yes: add them to your current list\nNo: replace your list with them", parent=self._parent())
             if answer is None:
                 return
-            if not answer:
+            if answer:
                 text = current + "\n\n" + text
         self.list_text.delete("1.0", "end")
         self.list_text.insert("1.0", text)
@@ -164,8 +186,7 @@ class ListMixin:
         remembered = {} if self.fresh_var.get() else load_choices(store)
         if not self.fresh_var.get():  # keep what was ticked in this window
             remembered.update({p.entry.key: list(p.selected) for p in self.plans
-                               if p.selected and not p.needs_choice and not p.error
-                               and p.reason in ("your choice", "your earlier choice")})
+                               if p.chosen_by_user and not p.needs_choice and not p.error})
         client = self.client
         client.refresh = self.refresh_var.get()
         needed = client.estimate_lookup([(e.game, e.mod_id) for e in entries if e.rule.mode != "skip"])
@@ -297,7 +318,13 @@ class ListMixin:
         """Look the list up again if requirements were added (cheap: the rest is saved)."""
         if getattr(self, "_pending_lookup", False):
             self._pending_lookup = False
-            self.root.after(50, self.lookup)
+
+            def go():
+                if self.busy:  # downloads or another lookup: wait for them
+                    self.root.after(3000, go)
+                else:
+                    self.lookup()
+            self.root.after(50, go)
             return True
         return False
 

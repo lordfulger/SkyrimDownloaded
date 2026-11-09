@@ -32,7 +32,12 @@ class AppUpdateTests(unittest.TestCase):
             bad = appupdate.NewVersion("9.9.9", "page", url, "0" * 64, len(data))
             with self.assertRaises(ValueError):
                 appupdate.download_update(bad, folder)
-            self.assertFalse((folder / "SkyrimDownloaded.update.exe").exists())
+            self.assertFalse(path.exists())  # the bad one replaced and then removed it
+            self.assertFalse((folder / ".skyrimdl-partial").exists())
+            # No checksum to check: only a real program is accepted.
+            unknown = appupdate.NewVersion("9.9.10", "page", url, "", None)
+            with self.assertRaises(ValueError):
+                appupdate.download_update(unknown, folder)
 
     def test_where_the_update_goes(self):
         import tempfile
@@ -74,8 +79,12 @@ class WindowsSwapTests(unittest.TestCase):
         import tempfile
         import time
         from pathlib import Path
-        folder = Path(tempfile.mkdtemp())
+        folder = Path(tempfile.mkdtemp(prefix="with space "))  # user names with spaces
         old, new = folder / "SkyrimDownloaded.exe", folder / "SkyrimDownloaded.update.exe"
+        spaced_temp = folder / "Temp Dir"
+        spaced_temp.mkdir()
+        self.addCleanup(setattr, tempfile, "tempdir", tempfile.tempdir)
+        tempfile.tempdir = str(spaced_temp)
         old.write_text("old version")
         new.write_text("new version")
         app = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(4)"])  # stands in for the app

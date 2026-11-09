@@ -29,6 +29,7 @@ class ModPlan:
     reason: str = ""
     error: str | None = None
     newer_files: bool = False   # Nexus says it has files newer than the ones we've seen
+    chosen_by_user: bool = False  # you picked these files (or left it out): kept on a new lookup
 
     @property
     def title(self) -> str:
@@ -75,6 +76,7 @@ def rechoose(plan: ModPlan, remembered: list[int] | None = None,
     """(Re)pick a looked-up mod's files, e.g. after the game version changed."""
     choice = choose(plan.entry, plan.options, remembered, target)
     plan.selected, plan.needs_choice, plan.reason = choice.selected, choice.needs_choice, choice.reason
+    plan.chosen_by_user = choice.reason in ("your earlier choice", "left out by you")
 
 
 def resolve(client: NexusClient, entries: list[ListEntry], *,

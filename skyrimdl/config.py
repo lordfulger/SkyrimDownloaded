@@ -133,7 +133,7 @@ class Settings:
                 if path.exists():
                     try:
                         _copy(path, path.with_name(CONFIG_FILE + ".bak"))
-                    except OSError:
+                    except (OSError, ValueError):  # unreadable or damaged: keep the last good backup
                         pass
                 os.replace(tmp, path)
                 break

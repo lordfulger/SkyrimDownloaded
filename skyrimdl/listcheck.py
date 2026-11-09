@@ -101,6 +101,7 @@ class PluginCount:
 def count_plugins(plans, fetch=fetch_preview, on_progress=None, cancel=None) -> PluginCount:
     result = PluginCount()
     seen: set = set()
+    counted: set = set()
     picked = []
     for p in plans:
         if p.error or p.skipped:
@@ -120,6 +121,9 @@ def count_plugins(plans, fetch=fetch_preview, on_progress=None, cancel=None) -> 
             continue
         plugins = preview_plugins(tree)
         flagged = bool(_ESL.search(f"{opt.name} {opt.file_name} {opt.description}"))
+        # The same plugin in two files (main file + hotfix, or one patch in two mods) loads once.
+        plugins = [p for p in plugins if p.name.lower() not in counted]
+        counted.update(p.name.lower() for p in plugins if not p.optional)
         for p in plugins:
             p.light = p.light or (flagged and p.name.lower().endswith(".esp"))
             if p.optional:

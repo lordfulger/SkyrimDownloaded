@@ -139,15 +139,15 @@ def mark_done(downloads, plan_id):
 
 
 def ensure_separator(organizer, title):
-    """The MO2 separator called ``title`` (created if missing). Returns its mod name."""
+    """The MO2 separator called ``title``: (its mod name, whether it was just made)."""
     name = title + SEPARATOR
     mod_list = organizer.modList()
     if name in mod_list.allMods():
-        return name
+        return name, False
     try:
         created = organizer.createMod(mobase.GuessedString(name))
         if created is not None:
-            return created.name()
+            return created.name(), True
     except Exception:
         pass
     # Fallback: a separator is just an empty mod folder whose name ends in "_separator".
@@ -161,25 +161,72 @@ def ensure_separator(organizer, title):
         organizer.refresh()
     except Exception:
         pass
-    return name
+    return name, True
 
 
-def arrange(organizer, plan, mod_names):
-    """Separators and mods at the bottom of the left pane, in the list's order."""
+def _priority(mod_list, name):
+    try:
+        return mod_list.priority(name)
+    except Exception:
+        return mod_list.allMods().index(name)
+
+
+def _left_pane(mod_list):
+    """Mods (and separators) from the top of the left pane down (lowest priority first)."""
+    names = [n for n in mod_list.allMods() if _priority(mod_list, n) >= 0]
+    return sorted(names, key=lambda n: _priority(mod_list, n))
+
+
+def _move_after(mod_list, name, anchor):
+    """Put ``name`` just below ``anchor`` in the left pane (None: at the very bottom)."""
+    order = _left_pane(mod_list)
+    if not order:
+        return False
+    target = _priority(mod_list, order[-1]) if anchor is None else _priority(mod_list, anchor)
+    if anchor is not None and _priority(mod_list, name) > target:
+        target += 1  # moving up: land after the anchor, not before it
+    try:
+        return bool(mod_list.setPriority(name, target)) is not False
+    except Exception:
+        return False
+
+
+def arrange(organizer, plan, mod_names, new_names=None):
+    """Put the newly installed mods in the list's order under the list's separators.
+
+    Mods that were already installed stay where you put them. A separator that already
+    exists stays where it is and new mods go after the last mod under it; a new separator
+    goes at the bottom. Returns the names moved."""
     mod_list = organizer.modList()
-    order = []
-    current = None
+    new_names = set(n for n in (mod_names if new_names is None else new_names) if n)
+    moved = []
+    current = current_name = None
     for entry, name in zip(plan, mod_names):
         sep = (entry.get("separator") or "").strip()
         if sep and sep != current:
+            sep_name, made = ensure_separator(organizer, sep)
             current = sep
-            order.append(ensure_separator(organizer, sep))
-        if name:
-            order.append(name)
-    order = [n for n in dict.fromkeys(order) if n in mod_list.allMods()]
-    for name in order:  # each to the bottom, so they end up in list order
-        mod_list.setPriority(name, len(mod_list.allMods()) - 1)
-    return order
+            current_name = sep_name
+            if made and sep_name in mod_list.allMods():
+                _move_after(mod_list, sep_name, None)
+                moved.append(sep_name)
+        elif not sep:
+            current, current_name = None, None
+        if not name or name not in new_names or name not in mod_list.allMods():
+            continue
+        if current_name and current_name in mod_list.allMods():
+            order = _left_pane(mod_list)
+            i = order.index(current_name)
+            j = i + 1
+            while j < len(order) and not order[j].endswith(SEPARATOR):
+                j += 1
+            last = order[j - 1]
+            if last != name:
+                _move_after(mod_list, name, last)
+        else:
+            _move_after(mod_list, name, None)
+        moved.append(name)
+    return moved
 
 
 def meta_index(downloads):
@@ -188,15 +235,20 @@ def meta_index(downloads):
     for name in os.listdir(downloads):
         if not name.lower().endswith(".meta"):
             continue
+        archive = name[:-5]
+        if ".unfinished" in archive.lower():
+            continue  # still downloading (or paused): not there yet
         parser = configparser.RawConfigParser(strict=False)
         try:
             with open(os.path.join(downloads, name), encoding="utf-8", errors="replace") as fh:
                 parser.read_file(fh)
             mod_id = int(parser.get("General", "modID"))
             file_id = int(parser.get("General", "fileID"))
+            flags = {k: parser.get("General", k, fallback="false").strip().lower() for k in ("paused", "removed")}
         except Exception:
             continue
-        archive = name[:-5]
+        if flags["paused"] == "true" or flags["removed"] == "true":
+            continue
         if os.path.isfile(os.path.join(downloads, archive)):
             index[(mod_id, file_id)] = archive
     return index
@@ -267,7 +319,11 @@ def run(organizer, downloads, steps, ask_continue=lambda message: True, set_orde
         step_names.append(mod.name())
     names = [n for n in dict.fromkeys(step_names) if n]
     if set_order:
-        arrange(organizer, [e for e, _, _ in steps], step_names)
+        new = set()
+        for (e, archive, already), name in zip(steps, step_names):
+            if name and not already:
+                new.add(name)
+        arrange(organizer, [e for e, _, _ in steps], step_names, new)
     for name in names:
         try:
             mod_list.setActive(name, True)

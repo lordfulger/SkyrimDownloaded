@@ -187,6 +187,7 @@ class NexusClient:
         self.graphql_url = re.sub(r"/v1$", "", self.base_url) + "/v2/graphql"
         self.timeout = timeout
         self.max_retries = max_retries
+        self._out_until = 0.0  # no requests left: until when to stop asking
         self.rate = RateLimit()
         self._cache: dict[str, object] = {}
         self._lock = threading.Lock()
@@ -228,6 +229,9 @@ class NexusClient:
                         self._cache[url] = data
                         self.requests_saved += 1
                     return data
+        if time.time() < self._out_until:  # the allowance is used up: don't wait on every mod
+            raise NexusError("Out of Nexus API requests for now (" + self.rate.describe()
+                             + "). Try again in an hour.", 429)
         attempt = 0
         while True:
             attempt += 1
@@ -257,7 +261,10 @@ class NexusClient:
                 if err.code == 401:
                     raise AuthError("Nexus says the API key isn't valid. " + message, 401) from None
                 if err.code == 429:
-                    if attempt > self.max_retries:
+                    used_up = self.rate.daily_remaining == 0 and self.rate.hourly_remaining == 0
+                    if used_up or attempt > self.max_retries:
+                        if used_up:
+                            self._out_until = time.time() + 300  # look again in 5 minutes
                         raise NexusError(
                             "Out of Nexus API requests for now (" + self.rate.describe()
                             + "). Try again in an hour.", 429) from None

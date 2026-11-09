@@ -46,11 +46,12 @@ def export_text(plans, target: GameTarget | None, *, title: str = "") -> str:
     for plan in plans:
         if getattr(plan.entry, "section", "") != section:
             section = plan.entry.section
-            if section:
-                lines += ["", f"## {section}"]
+            # Back to no heading after a heading: say so, or these would land under the last one.
+            lines += ["", f"## {section or 'Other mods'}"]
         url = plan.entry.page_url
         name = _clean(plan.title)
-        note = f" - {_clean(plan.entry.note)}" if plan.entry.note and plan.entry.note != plan.title else ""
+        own = _own_note(plan.entry.note, name)
+        note = f"   note: {own}" if own else ""
         if plan.error:
             lines.append(f"# {url}   # {name}: {plan.error}")
             continue
@@ -62,6 +63,16 @@ def export_text(plans, target: GameTarget | None, *, title: str = "") -> str:
         files = ", ".join(_clean(o.name) for o in picked)
         lines.append(f"{url} | file={ids}   # {name}: {files}{note}")
     return "\n".join(lines) + "\n"
+
+
+def _own_note(note: str, name: str) -> str:
+    """The user's own note, without the "Name: files" an earlier export wrote."""
+    note = _clean(note or "")
+    if not note or note == name:
+        return ""
+    if note.startswith(name):
+        return note.split("note: ", 1)[1].strip() if "note: " in note else ""
+    return note
 
 
 def version_warning(meta: dict[str, str], target: GameTarget | None) -> str | None:

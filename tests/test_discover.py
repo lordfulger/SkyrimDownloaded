@@ -51,3 +51,19 @@ class DiscoverTests(unittest.TestCase):
         self.assertEqual(found[0].seen_in, ["Lite Setup", "Pretty Setup"])
         self.assertEqual(found[0].needs, ["x"])  # its requirement isn't in your list
         self.assertEqual(discover.goes_well(self.client, plans, hidden={6001}), [])
+
+    def test_daily_check_marks_mods_with_newer_files(self):
+        from skyrimdl import updates
+        plans = resolve(self.client, parse_list("12604\n1000\n")[0])
+        newest = max(o.uploaded for o in plans[1].options)
+        self.fake.state["updated"] = [
+            {"mod_id": 12604, "latest_file_update": 0, "latest_mod_activity": 1},      # nothing new
+            {"mod_id": 1000, "latest_file_update": newest + 86400, "latest_mod_activity": 1},
+            {"mod_id": 555, "latest_file_update": 2_000_000_000, "latest_mod_activity": 1},  # not in the list
+        ]
+        updated = self.client.updated_mods("skyrimspecialedition", "1w")
+        self.assertEqual(self.fake.state["updated_periods"], ["1w"])
+        newer = updates.newer_on_nexus(plans, updated)
+        self.assertEqual([p.title for p in newer], ["Pretty Textures"])
+        self.assertTrue(plans[1].newer_files)
+        self.assertFalse(plans[0].newer_files)

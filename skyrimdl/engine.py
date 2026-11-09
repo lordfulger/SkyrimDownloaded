@@ -28,6 +28,7 @@ class ModPlan:
     needs_choice: bool = False
     reason: str = ""
     error: str | None = None
+    newer_files: bool = False   # Nexus says it has files newer than the ones we've seen
 
     @property
     def title(self) -> str:

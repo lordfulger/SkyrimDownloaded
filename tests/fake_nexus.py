@@ -152,6 +152,9 @@ class Handler(BaseHTTPRequestHandler):
             state["fail_429"] -= 1
             return self._json(429, {"message": "slow down"}, {"Retry-After": "0"})
         parts = path.strip("/").split("/")
+        if parts[1:] == ["games", "skyrimspecialedition", "mods", "updated.json"]:
+            state.setdefault("updated_periods", []).append(self.path.split("period=")[-1])
+            return self._json(200, state.get("updated", []))
         if parts[1:] == ["games", "skyrimspecialedition.json"]:
             return self._json(200, {"name": "Skyrim Special Edition", "categories": [
                 {"category_id": 29, "name": "Environmental", "parent_category": 1},

@@ -333,6 +333,12 @@ class NexusClient:
         return {int(c["category_id"]): str(c.get("name") or "") for c in data.get("categories") or []
                 if c.get("category_id") is not None}
 
+    def updated_mods(self, game: str, period: str = "1w") -> list[dict]:
+        """Mods updated in the last day / week / month ("1d", "1w", "1m"): one request for
+        the whole game - [{"mod_id", "latest_file_update", "latest_mod_activity"}]."""
+        data = self._get(f"/games/{game}/mods/updated.json", {"period": period}, cache=False)
+        return list(data or [])
+
     def track(self, game: str, mod_id: int) -> None:
         """Track a mod on Nexus (the site then tells you about its updates)."""
         self._get("/user/tracked_mods.json", {"domain_name": game}, form={"mod_id": int(mod_id)})

@@ -181,6 +181,8 @@ class PlanMixin:
                 status = "Choose files: " + plan.reason
             else:
                 status = plan.reason
+            if plan.newer_files and not plan.error:
+                status = "\u2b06 new files on Nexus \u00b7 " + status
             warns = all_warns.get(id(plan))
             if warns and not plan.error:
                 status = "\u26a0 " + "; ".join(warns[:2]) + " \u00b7 " + status

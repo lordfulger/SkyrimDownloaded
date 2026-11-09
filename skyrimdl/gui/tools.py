@@ -118,6 +118,42 @@ class ToolsMixin:
             self.events.put(("info", msg))
         self._background(work)
 
+    # -- crash logs ----------------------------------------------------------------------
+
+    def read_crash_log(self) -> None:
+        """Pick a crash log (the newest is offered first) and show which mods it names."""
+        from .. import crashlog
+        newest = crashlog.newest_logs(1)
+        folders = crashlog.log_folders()
+        path = filedialog.askopenfilename(
+            title="Pick a crash log (Crash Logger: crash-....log; .NET Script Framework: Crash_....txt)",
+            initialdir=str(newest[0].parent if newest else folders[0] if folders else Path.home()),
+            initialfile=newest[0].name if newest else "",
+            filetypes=[("Crash logs", "*.log *.txt"), ("All files", "*.*")])
+        if not path:
+            return
+        try:
+            text = Path(path).read_text(encoding="utf-8", errors="replace")
+        except OSError as err:
+            messagebox.showerror("Crash log", f"Couldn't read it: {err}", parent=self._parent())
+            return
+        crash = crashlog.parse(text)
+        mo2_files, mo2_ids = {}, {}
+        try:
+            target = make_target("mo2", self.settings.game,
+                                 **{k: v.get().strip() for k, v in self.path_vars.items()})
+            mods_dir = target.mods_dir()
+        except ManagerError:
+            mods_dir = None
+        if mods_dir and mods_dir.is_dir():
+            mo2_files = crashlog.index_mo2(mods_dir)
+            mo2_ids = crashlog.mo2_mod_ids(mods_dir, [mo2_files[n.name.lower()] for n in crash.named
+                                                      if n.name.lower() in mo2_files])
+        crashlog.match(crash, self.plans, mo2_files, mo2_ids,
+                       crashlog.preview_index(self.plans, nexuscache.shared()))
+        from .dialogs import CrashDialog
+        CrashDialog(self.root, crash, Path(path))
+
     def check_for_updates(self) -> None:
         if not self.plans:
             messagebox.showinfo("Updates", "Look up the mods in your list first.", parent=self._parent())
@@ -127,9 +163,20 @@ class ToolsMixin:
             return
         client, plans, target = self.client, list(self.plans), self._target_game()
         todo = [p for p in plans if p.mod and not p.error and not p.skipped and p.selected]
+        newer = [p for p in todo if p.newer_files]
+        if newer and len(newer) < len(todo):
+            answer = messagebox.askyesnocancel(
+                "Updates", f"{len(newer)} mods in your list have new files on Nexus (marked \u2b06).\n\n"
+                f"Yes: check just those (about {2 * len(newer)} requests)\n"
+                f"No: check all {len(todo)} mods (about {2 * len(todo)} requests)", parent=self._parent())
+            if answer is None:
+                return
+            if answer:
+                plans = todo = newer
         if not self._requests_ok(2 * len(todo), f"Checking {len(todo)} mods for updates"):
             return
         self.status_var.set("Checking Nexus for newer files…")
+        self._checked_for_updates = list(todo)
         self.new_operation()
 
         def work():
@@ -139,7 +186,54 @@ class ToolsMixin:
             self.events.put(("updates", (found, errors)))
         self._background(work)
 
+    # -- once a day: which mods have new files (one request) -------------------------------
+
+    def daily_mod_check(self, force: bool = False) -> None:
+        s = self.settings
+        for p in self.plans:  # marks from today's check, kept across restarts
+            p.newer_files = p.newer_files or p.entry.mod_id in set(s.newer_mod_ids or [])
+        if not force and (not s.check_mod_updates or time.time() - s.last_mod_update_check < 20 * 3600):
+            if any(p.newer_files for p in self.plans):
+                self._fill_tree()
+            return
+        if self.client is None or not self.plans or self.busy:
+            if not force:
+                self.root.after(10 * 60 * 1000, self.daily_mod_check)  # try again in 10 minutes
+            return
+        days = (time.time() - s.last_mod_update_check) / 86400
+        period = "1d" if days <= 1.2 else "1w" if days <= 7 else "1m"
+        client, plans, game = self.client, list(self.plans), self.settings.game
+
+        def work():
+            try:
+                updated = client.updated_mods(game, period)
+            except NexusError as err:
+                log.warning("Daily update check: %s", err)
+                return
+            self.events.put(("mod-updates", (updates.newer_on_nexus(plans, updated), period)))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _daily_done(self, newer, period) -> None:
+        s = self.settings
+        s.last_mod_update_check = time.time()
+        s.newer_mod_ids = sorted({p.entry.mod_id for p in self.plans if p.newer_files})
+        self._save_settings()
+        if newer:
+            self._fill_tree()
+            self.status_var.set(f"{len(newer)} mods in your list have new files on Nexus (marked \u2b06) - "
+                                "press Check for updates to see them.")
+        log.info("Daily update check (%s): %d mods with new files", period, len(newer))
+
+    def _daily_toggled(self) -> None:
+        self.settings.check_mod_updates = self.daily_var.get()
+        self._save_settings()
+        if self.settings.check_mod_updates:
+            self.daily_mod_check()
+
     def _updates_done(self, found, errors) -> None:
+        for p in getattr(self, "_checked_for_updates", []):
+            p.newer_files = False
+        self.settings.newer_mod_ids = sorted({p.entry.mod_id for p in self.plans if p.newer_files})
         self._fill_tree()
         if not found:
             msg = "Everything you picked is up to date."

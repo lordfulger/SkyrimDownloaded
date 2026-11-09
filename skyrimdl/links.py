@@ -228,7 +228,9 @@ def parse_list(text: str, default_game: str = DEFAULT_GAME) -> tuple[list[ListEn
             for fid in entry.file_ids:
                 if fid not in old.file_ids:
                     old.file_ids.append(fid)
-            if entry.rule.mode != "auto" or entry.rule.file_ids or entry.rule.match:
+            if old.rule.file_ids and entry.rule.file_ids:  # file=1 on one line, file=2 on another: both
+                old.rule.file_ids += [f for f in entry.rule.file_ids if f not in old.rule.file_ids]
+            elif entry.rule.mode != "auto" or entry.rule.file_ids or entry.rule.match:
                 old.rule = entry.rule
             old.note = old.note or entry.note
             old.nxm_key = old.nxm_key or entry.nxm_key

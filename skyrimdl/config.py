@@ -56,6 +56,9 @@ class Settings:
     # Requests left at the last answer from Nexus: {"daily", "hourly", "time"}.
     rate: dict = field(default_factory=dict)
     last_update_check: float = 0.0
+    check_mod_updates: bool = True  # once a day: which mods in the list have new files (1 request)
+    last_mod_update_check: float = 0.0
+    newer_mod_ids: list = field(default_factory=list)  # mods marked as having new files
     api_key_protected: str = field(default="", repr=False)
 
     # -- the API key -------------------------------------------------------

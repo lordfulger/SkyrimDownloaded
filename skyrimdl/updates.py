@@ -114,3 +114,23 @@ def apply(updates: list[Update]) -> int:
         u.plan.reason = "updated to the newer file"
         n += 1
     return n
+
+
+def newer_on_nexus(plans, updated: list[dict]) -> list:
+    """Mods in the list with a file on Nexus newer than any file we know of (from one
+    "updated this week" answer). Marks them with ``newer_files``."""
+    latest = {}
+    for u in updated:
+        try:
+            latest[int(u.get("mod_id"))] = int(u.get("latest_file_update") or 0)
+        except (TypeError, ValueError):
+            continue
+    out = []
+    for p in plans:
+        if p.error or p.skipped or not p.options or p.entry.mod_id not in latest:
+            continue
+        known = max((o.uploaded for o in p.options), default=0)
+        if latest[p.entry.mod_id] > known + 60:
+            p.newer_files = True
+            out.append(p)
+    return out

@@ -895,3 +895,89 @@ class AutoPickDialog(tk.Toplevel):
             s.auto_pick, s.skip_extras, s.only_real_choices, s.prefer_words, s.avoid_words = new
             self.changed = True
         self.destroy()
+
+
+class CrashDialog(tk.Toplevel):
+    """What a crash log names, matched to the mods they come from."""
+
+    def __init__(self, master, crash, path):
+        super().__init__(master)
+        self.title("Crash log")
+        self.geometry("860x600")
+        self.transient(master)
+        ttk.Label(self, text=path.name, style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
+        ttk.Label(self, text=f"{crash.kind} log" + (f" \u00b7 {crash.game}" if crash.game else ""),
+                  style="Muted.TLabel").pack(anchor="w", padx=12)
+        body = ttk.Frame(self)
+        body.pack(fill="both", expand=True, padx=12, pady=8)
+        text = tk.Text(body, wrap="word", relief="flat", highlightthickness=1, padx=10, pady=8, font="TkDefaultFont")
+        text._details = True
+        sb = ttk.Scrollbar(body, orient="vertical", command=text.yview)
+        text.configure(yscrollcommand=sb.set)
+        text.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        AutoScroll(text)
+        theme = getattr(master, "_theme", None)
+        c = theme.colors if theme else {"muted": "#555", "error": "#b00020", "done": "#1b7a1b", "accent": "#2a6ad8"}
+        text.tag_configure("h", font=("TkDefaultFont", 11, "bold"), spacing1=12, spacing3=4)
+        text.tag_configure("meta", foreground=c["muted"])
+        text.tag_configure("warn", foreground=c["error"])
+        links = [0]
+
+        def link(label, url):
+            links[0] += 1
+            tag = f"link{links[0]}"
+            text.tag_configure(tag, foreground=c.get("accent", "#2a6ad8"), underline=True)
+            text.tag_bind(tag, "<Button-1>", lambda e, u=url: webbrowser.open(u))
+            text.insert("end", label, (tag,))
+
+        if crash.exception:
+            text.insert("end", crash.exception[:200] + "\n", "warn")
+        stack = [n for n in crash.named if n.in_stack]
+        objects = [n for n in crash.named if not n.in_stack]
+        for title, group, why in (
+                ("In the code that crashed (call stack)", stack,
+                 "The first one here is the most likely cause - especially if it's a mod's DLL."),
+                ("Plugins and DLLs of the things involved", objects,
+                 "Objects the game was handling when it crashed, and the plugins that add or change them. "
+                 "Often a clue, not proof.")):
+            text.insert("end", title + "\n", "h")
+            text.insert("end", why + "\n", "meta")
+            if not group:
+                text.insert("end", "None named.\n", "meta")
+            for i, n in enumerate(group):
+                text.insert("end", ("\u2192 " if i == 0 and group is stack else "\u2022 ") + n.name)
+                text.insert("end", f"  ({n.count}x)" if n.count > 1 else "", "meta")
+                text.insert("end", "   from ")
+                if n.url:
+                    link(n.mod, n.url)
+                elif n.mod:
+                    text.insert("end", n.mod + " (in MO2, not in your list)")
+                else:
+                    text.insert("end", "a mod not found in your list or MO2", "meta")
+                text.insert("end", "\n")
+        if not crash.named:
+            text.insert("end", "\nNo mod files are named before the lists of loaded modules and plugins. "
+                               "The crash may be in the game itself or a driver.\n", "meta")
+        text.insert("end", "\nNext: check the mods above (their pages' Posts and Bugs tabs often know "
+                           "the crash), update them, or switch them off in MO2 to test.\n", "meta")
+        text.configure(state="disabled")
+        btns = ttk.Frame(self)
+        btns.pack(fill="x", padx=12, pady=(0, 12))
+        ttk.Button(btns, text="Close", command=self.destroy).pack(side="right")
+        ttk.Button(btns, text="Open the log", command=lambda: _open_file(path)).pack(side="right", padx=6)
+        if getattr(master, "_theme", None):
+            master._theme.paint(self)
+
+
+def _open_file(path) -> None:
+    import os
+    import subprocess
+    import sys
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(path))  # noqa: S606
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+    except Exception:
+        pass

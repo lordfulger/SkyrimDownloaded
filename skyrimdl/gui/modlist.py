@@ -68,6 +68,59 @@ class ListMixin:
             self.events.put(("collection", (data, game)))
         self._background(work)
 
+    def build_from_mo2(self) -> None:
+        """Make the list from your MO2 setup: the profile's mods in order, under its separators,
+        with the exact files installed."""
+        from .. import mo2import
+        try:
+            target = make_target("mo2", self.settings.game, **{k: v.get().strip() for k, v in self.path_vars.items()})
+            instance = target.instance_dir
+        except ManagerError:
+            instance = None
+        if not instance or not (instance / "ModOrganizer.ini").is_file():
+            messagebox.showinfo("Build from MO2", "Pick your MO2 instance in step 2 first (Find automatically "
+                                "can do it).", parent=self._parent())
+            return
+        profiles = mo2import.profile_names(instance)
+        if not profiles:
+            messagebox.showinfo("Build from MO2", f"No profiles found in {mo2import.profiles_dir(instance)}.",
+                                parent=self._parent())
+            return
+        profile = mo2import.current_profile(instance)
+        if len(profiles) > 1:
+            profiles.sort(key=lambda n: n != profile)
+            profile = pick_one(self.root, "Build from MO2", "Which MO2 profile?", profiles,
+                               lambda n: n + ("   (the one MO2 has open)" if n == mo2import.current_profile(instance) else ""))
+            if not profile:
+                return
+        built = mo2import.build_list(instance, target.mods_dir(), self.settings.game, profile)
+        if not built.mods and not built.off:
+            messagebox.showinfo("Build from MO2", f"The profile \"{profile}\" has no mods from Nexus.",
+                                parent=self._parent())
+            return
+        text = built.text
+        current = self.list_text.get("1.0", "end-1c").strip()
+        if current:
+            answer = messagebox.askyesnocancel(
+                "Build from MO2", f"Found {built.mods} mods from Nexus in \"{profile}\".\n\n"
+                "Yes: replace your list with them\nNo: add them to the end of your list", parent=self._parent())
+            if answer is None:
+                return
+            if not answer:
+                text = current + "\n\n" + text
+        self.list_text.delete("1.0", "end")
+        self.list_text.insert("1.0", text)
+        self.list_path = None
+        self.list_label.set(f"(from MO2 profile {profile})")
+        extra = []
+        if built.off:
+            extra.append(f"{built.off} switched off in MO2 are in the list as comments")
+        if built.not_nexus:
+            extra.append(f"{built.not_nexus} not from Nexus are noted as comments")
+        self.status_var.set(f"Built the list from MO2: {built.mods} mods, {built.separators} separators"
+                            + (" (" + "; ".join(extra) + ")" if extra else "") + ". Press Look up mods next.")
+        log.info("Built list from MO2 profile %s: %d mods", profile, built.mods)
+
     def _collection_loaded(self, data, game) -> None:
         text, count = collections.to_list(data, game)
         name = (data.get("collection") or {}).get("name") or "the collection"

@@ -78,6 +78,7 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
 3. **Your Skyrim:** pick your game version, or press **Detect** to read it from your `SkyrimSE.exe` (see below).
    - **Textures:** pick 1K, 2K, 4K or 8K. When a mod offers the same textures in several sizes ("1K", "2K", "2K4K", "2048"...), your size is picked by itself (or the closest: the next size down, then up; a mix like 2K4K counts for 2K and 4K). If those sizes were the only choice, the mod isn't asked about. Files picked in the list (`match=`, `file=`) or by you earlier stay as they are; **Bulk actions → Use my texture size** changes those too.
 4. **Mod list:** open a `.txt` file, or type or paste links into the box. Then press **Look up mods**.
+   - **List ▾ → Build from my MO2 setup** makes the list from an MO2 profile: the mods in the order of MO2's left pane, under its separators (as `##` headings), with the exact files you have installed (`| file=`). Mods switched off in MO2 and mods not from Nexus are added as comments. Handy for moving a setup into the app or rebuilding it on another PC.
    - **Find** above the box (or **Ctrl+F** while you're in the list) marks every match in the list. **Enter** or **▼** goes to the next one, **Shift+Enter** or **▲** to the one before, **Esc** clears it.
 5. **Choose options:** for every mod with a real choice to make, a window steps you through them one at a time. Tick the files you want.
    - **Auto-pick…** (above the list of mods) sets which mods are decided without asking. On by default:
@@ -217,6 +218,8 @@ Command line: `python -m skyrimdl collection <link> -o my-list.txt`
 
 ## Checking for updates
 
+**Once a day** (Help ▾ → "Check my mods for new files once a day", on by default) the app asks Nexus which mods were updated in the last day, week or month - **one request** for the whole game - and marks the mods in your list that have files newer than any it has seen (⬆ in the list). **Check for updates** then offers to check just those mods instead of all of them.
+
 **Check for updates** asks Nexus again about every file you picked:
 
 | What Nexus shows | What the tool does |
@@ -233,6 +236,14 @@ Tick the ones you want, then **Start downloads** to get them. The command line h
 - **MO2:** LOOT runs *through* MO2, so it can see your mods. If LOOT is one of the instance's executables (MO2 usually adds it by itself), it's started by that name. Otherwise the tool finds `LOOT.exe` (installed, or in a Wabbajack list's tools folder) and runs it through MO2.
 - **Vortex:** Vortex sorts plugins itself (Plugins tab, **Sort now**). The button still opens LOOT on its own if you have it.
 - **Command line:** `python -m skyrimdl loot`
+
+## Reading a crash log
+
+**Help ▾ → Read a Skyrim crash log** opens a log from **Crash Logger** (`crash-….log`, in Documents\My Games\Skyrim Special Edition\SKSE) or **.NET Script Framework** (`Crash_….txt`); the newest one is picked for you. It shows:
+- **In the code that crashed (call stack):** mod DLLs in the call stack. The first one is the most likely cause.
+- **Plugins and DLLs of the things involved:** the plugins of the objects the game was handling (an NPC, an item...) and other DLLs named. Often a clue, not proof.
+- For each, **the mod it's from**: looked up in your MO2 mods folder, in the archives' file lists (after **Check list**), or by name - with a link to its page.
+The game, Windows, drivers, the base game's plugins and the full lists of everything loaded at the end of the log are left out.
 
 ## Nexus requests
 

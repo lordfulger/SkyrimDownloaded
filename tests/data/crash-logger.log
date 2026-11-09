@@ -1,0 +1,49 @@
+Skyrim SSE v1.6.1170
+CrashLoggerSSE v1-15-0-0 Oct  1 2024 21:42:22
+
+Unhandled exception "EXCEPTION_ACCESS_VIOLATION" at 0x7FF71E6C0A5D SkyrimSE.exe+0D50A5D	mov rax, [rcx+0x10]
+Exception Flags: 0x00000000
+Number of Parameters: 2
+
+SYSTEM SPECS:
+	OS: Microsoft Windows 11 Pro v10.0.22631
+	GPU #1: Nvidia GA104 [GeForce RTX 3070]
+
+PROBABLE CALL STACK:
+	[ 0] 0x7FF71E6C0A5D       SkyrimSE.exe+0D50A5D -> 68676+0x2D	mov rax, [rcx+0x10]
+	[ 1] 0x7FFA1C2B3A10 po3_PapyrusExtender.dll+00B3A10
+	[ 2] 0x7FFA1C2B1200 po3_PapyrusExtender.dll+00B1200
+	[ 3] 0x7FFA2D001234     BadMod Plugin.dll+0001234
+	[ 4] 0x7FFA9F001234          KERNEL32.DLL+0017614
+
+REGISTERS:
+	RAX 0x1E8B1D44E80      (TESObjectREFR*)
+		Flags: 0x00000408 kInitialized | kPersistent
+		Name: "Bandit Chief"
+		FormID: 0xFE001234
+		FormType: ActorCharacter (62)
+		File: "Interesting NPCs.esp"
+		Modified by: Skyrim.esm -> Update.esm -> Interesting NPCs.esp -> USSEP.esp
+	RCX 0x0                (size_t) [0]
+
+STACK:
+	[RSP+0  ] 0x1E8B1D44E80      (TESObjectREFR*)
+		File: "Interesting NPCs.esp"
+	[RSP+8  ] 0x7FFA1C2B3A10     (void* -> po3_PapyrusExtender.dll+00B3A10)
+
+MODULES:
+	XINPUT1_3.dll                    0x000000400000
+	po3_PapyrusExtender.dll          0x7FFA1C200000
+	EngineFixes.dll                  0x7FFA1C300000
+
+SKSE PLUGINS:
+	EngineFixes.dll v7
+	po3_PapyrusExtender.dll v5.6
+
+PLUGINS:
+	Light: 2	Regular: 5	Total: 7
+	[00]     Skyrim.esm
+	[01]     Update.esm
+	[02]     USSEP.esp
+	[03]     Interesting NPCs.esp
+	[FE:000] ccBGSSSE001-Fish.esm

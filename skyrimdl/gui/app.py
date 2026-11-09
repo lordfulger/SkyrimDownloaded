@@ -58,6 +58,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         gc.disable()
         self._gc_ticks = 0
         root.after(4000, self.check_app_update)
+        root.after(9000, self.daily_mod_check)
         root.after(100, self._pump)
         root.protocol("WM_DELETE_WINDOW", self._close)
 
@@ -82,6 +83,11 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                                       else "System")
         help_btn = ttk.Menubutton(top_row, text="Help \u25be")
         help_menu = tk.Menu(help_btn, tearoff=False)
+        help_menu.add_command(label="Read a Skyrim crash log\u2026", command=self.read_crash_log)
+        self.daily_var = tk.BooleanVar(value=bool(self.settings.check_mod_updates))
+        help_menu.add_checkbutton(label="Check my mods for new files once a day (1 request)",
+                                  variable=self.daily_var, command=self._daily_toggled)
+        help_menu.add_separator()
         help_menu.add_command(label="Copy debug info", command=self.copy_debug_info)
         help_menu.add_command(label="Open log folder", command=self.open_log_folder)
         help_menu.add_command(label="Check for a new version / update", command=lambda: self.check_app_update(force=True))
@@ -208,6 +214,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         list_menu.add_command(label="Open list\u2026", command=self.open_list)
         list_menu.add_command(label="Save list\u2026", command=self.save_list)
         list_menu.add_command(label="Start from a Nexus Collection\u2026", command=self.import_collection)
+        list_menu.add_command(label="Build from my MO2 setup\u2026", command=self.build_from_mo2)
         list_menu.add_command(label="Share (with your choices)\u2026", command=self.share_list)
         list_menu.add_separator()
         list_menu.add_command(label="Start over", command=self.start_over)
@@ -750,7 +757,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                 "clipboard-login": self._clipboard_login_done, "login-ok": self._login_ok,
                 "listcheck": self._listcheck_done,
                 "discover-browse": self._browse_done, "discover-suggest": self._suggest_done,
-                "discover-goes": self._goes_done,
+                "discover-goes": self._goes_done, "mod-updates": self._daily_done,
                 "login-retry": self._login_retry, "updates": self._updates_done,
                 "compat": self._compat_done, "games": self._games_found, "found": self._apply_found,
                 "requirements": self._requirements_done, "finished": self._finished,

@@ -83,7 +83,7 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
    - **Skip for now** puts a mod off; it comes back after all the others. Mods still skipped or waiting stay highlighted in the list.
    - **Leave this mod out** drops it from this download.
    - The wheel, middle-click scrolling and Page Up/Down all scroll the list of files. **Ctrl+F** finds a file in the list (**Enter** for the next match).
-   - Warnings at the top ("needs …", "may conflict with …") link to that mod's Nexus page: click the name.
+   - Warnings at the top ("needs …", "may conflict with …") link to that mod's Nexus page: click the name. After "needs …" it says whether that mod will be downloaded: **✓ in your list**, **Add to list** if it isn't in your list, or **Include it** if it's in your list but left out.
    - In the main list, tick or untick a file by clicking its box or double-clicking it. **Choose options…** opens the window again.
    - **Click a mod** to see its Nexus page in the panel on the right: its picture, author, version, last update, endorsements, downloads, summary and full description. The panel also shows its requirements (in your list or not) and its links with your other mods. Click a file to see that file's details.
    - **Search** (or **Ctrl+F**) filters the list by mod name, author, your note or file name. It also marks the matches in your mod list (section 3): **Enter** jumps to the next one, **Shift+Enter** to the one before, **Esc** clears the search. Text you've selected in the mod list goes into the search box when you press Ctrl+F.

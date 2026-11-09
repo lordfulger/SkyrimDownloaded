@@ -206,8 +206,46 @@ class ChoiceDialog(tk.Toplevel):
                 link_label(line, w.name, w.url).pack(side="left", padx=(4, 0))
             else:
                 ttk.Label(line, text=w.name, style="Warn.TLabel").pack(side="left", padx=(4, 0))
-            if w.after:
+            if before == "needs" and w.url:
+                self._needed_mod_status(line, w)
+            elif w.after:
                 ttk.Label(line, text=w.after, style="Warn.TLabel").pack(side="left")
+
+    def _needed_mod_status(self, line, w) -> None:
+        """After "needs X": whether X will be downloaded, with a button to fix it if not."""
+        other = w.other
+
+        def button(text, action):
+            btn = ttk.Button(line, text=text)
+
+            def press():
+                done = action()
+                btn.configure(text=done or "Done \u2713", state="disabled")
+            btn.configure(command=press)
+            btn.pack(side="left", padx=8)
+
+        if other is None:
+            ttk.Label(line, text="  not in your list", style="Warn.TLabel").pack(side="left")
+            if self.add_requirement:
+                button("Add to list", lambda: "Added \u2713" if self.add_requirement(w.url, self.plan.title)
+                       else "Already in your list")
+        elif other.skipped:
+            ttk.Label(line, text="  in your list, but marked skip there", style="Warn.TLabel").pack(side="left")
+        elif other.error or not other.selected:
+            ttk.Label(line, text="  in your list, but left out", style="Warn.TLabel").pack(side="left")
+            if not other.error and primary_file(other.options):
+                button("Include it", lambda: self._include(other))
+        else:
+            ttk.Label(line, text="  \u2713 in your list", style="Good.TLabel").pack(side="left")
+
+    def _include(self, other) -> str:
+        """Get a needed mod after all: its main file, or what you pick when you get to it."""
+        main = primary_file(other.options)
+        other.selected = [main.file_id] if main else []
+        other.reason = f"included - {self.plan.title} needs it"
+        if other in self.later:
+            self.later.remove(other)
+        return "Included \u2713"
 
     def _show_needs(self, plan) -> None:
         """What this mod needs, with a link to each mod and Add to list for missing ones."""

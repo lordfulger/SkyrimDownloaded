@@ -280,6 +280,17 @@ class ManagerAndConfigTests(unittest.TestCase):
         loaded = Settings.load(self.tmp)
         self.assertEqual((loaded.manager, loaded.get_api_key()), ("vortex", "secret-key"))
 
+    def test_settings_backup_used_if_damaged(self):
+        s = Settings(manager="vortex")
+        s.set_api_key("abc123")
+        s.save(self.tmp)
+        s.save(self.tmp)  # the second save keeps the first as the backup
+        (self.tmp / "settings.json").write_text("{ half written", encoding="utf-8")
+        loaded = Settings.load(self.tmp)
+        self.assertEqual(loaded.get_api_key(), "abc123")
+        self.assertEqual(loaded.manager, "vortex")
+        self.assertEqual(list(self.tmp.glob("*.tmp")), [])
+
     def test_theme_setting_roundtrip(self):
         Settings(theme="Dark").save(self.tmp)
         self.assertEqual(Settings.load(self.tmp).theme, "Dark")

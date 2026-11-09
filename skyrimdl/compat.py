@@ -56,10 +56,11 @@ _WORKS = re.compile(r"compatible with|works (?:fine |well )?with|work together",
 class ModWarning(str):
     """A warning like "needs X": plain text, plus the mod's name and page for a link."""
 
-    def __new__(cls, before: str, name: str, url: str = "", after: str = ""):
+    def __new__(cls, before: str, name: str, url: str = "", after: str = "", other=None):
         text = " ".join(t for t in (before, name) if t) + after
         self = super().__new__(cls, text)
         self.before, self.name, self.url, self.after = before, name, url, after
+        self.other = other  # the mod (ModPlan) it's about, when it's in the list
         return self
 
 
@@ -115,11 +116,11 @@ class Report:
         out: dict[int, list[ModWarning]] = {}
         for f in self.findings:
             if f.kind == CONFLICT:
-                out.setdefault(id(f.plan), []).append(ModWarning("may conflict with", f.other.title, _page(f.other)))
+                out.setdefault(id(f.plan), []).append(ModWarning("may conflict with", f.other.title, _page(f.other), other=f.other))
                 out.setdefault(id(f.other), []).append(
-                    ModWarning("", f.plan.title, _page(f.plan), "'s page says it may conflict with this"))
+                    ModWarning("", f.plan.title, _page(f.plan), "'s page says it may conflict with this", other=f.plan))
             elif f.kind == NEEDS:
-                out.setdefault(id(f.plan), []).append(ModWarning("needs", f.other.title, _page(f.other), " (in your list)"))
+                out.setdefault(id(f.plan), []).append(ModWarning("needs", f.other.title, _page(f.other), " (in your list)", other=f.other))
             elif f.kind == DLC:
                 out.setdefault(id(f.plan), []).append(ModWarning("needs", f.evidence or "game content", ""))
         return out

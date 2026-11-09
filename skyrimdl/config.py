@@ -62,7 +62,9 @@ class Settings:
             return ""
         try:
             return _unprotect(self.api_key_protected)
-        except Exception:
+        except Exception as err:
+            import logging
+            logging.getLogger("skyrimdl").warning("Couldn't read the saved API key: %s", err)
             return ""
 
     def set_api_key(self, key: str) -> None:
@@ -80,26 +82,55 @@ class Settings:
 
     @classmethod
     def load(cls, folder: Path | None = None) -> "Settings":
-        path = (folder or config_dir()) / CONFIG_FILE
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return cls()
-        known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        folder = folder or config_dir()
+        for name in (CONFIG_FILE, CONFIG_FILE + ".bak"):  # the backup if the file is damaged
+            try:
+                data = json.loads((folder / name).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(data, dict):
+                known = {f.name for f in fields(cls)}
+                return cls(**{k: v for k, v in data.items() if k in known})
+        return cls()
 
     def save(self, folder: Path | None = None) -> Path:
+        import threading
+        import time
         folder = folder or config_dir()
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / CONFIG_FILE
-        tmp = path.with_suffix(".tmp")
+        tmp = path.with_name(f"{CONFIG_FILE}.{os.getpid()}.{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
         try:
             os.chmod(tmp, 0o600)
         except OSError:
             pass
-        os.replace(tmp, path)
+        # Windows can hold the file for a moment (antivirus, another save): try again.
+        for attempt in range(6):
+            try:
+                if path.exists():
+                    try:
+                        _copy(path, path.with_name(CONFIG_FILE + ".bak"))
+                    except OSError:
+                        pass
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                if attempt == 5:
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
+                    raise
+                time.sleep(0.1 * (attempt + 1))
         return path
+
+
+def _copy(src: Path, dst: Path) -> None:
+    """Keep the last good settings as a backup (only if it reads as settings)."""
+    text = src.read_text(encoding="utf-8")
+    json.loads(text)
+    dst.write_text(text, encoding="utf-8")
 
 
 # -- protecting the key ------------------------------------------------------

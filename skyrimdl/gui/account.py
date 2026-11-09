@@ -74,9 +74,26 @@ class AccountMixin:
         self.key_var.set("")
         self.settings.set_api_key("")
         self.settings.account = {}
+        self.settings.rate = {}
         self.nexus_btn.configure(text="Log in with Nexus")
         self.account_var.set("Logged out")
         self._save_settings()
+
+    def _login_ok(self, key, acct) -> None:
+        self._remember_account(key, acct)
+        self.account_var.set(f"Logged in as {acct.name} ({acct.kind})")
+        self._save_settings()  # keep the login now, not only when the app closes
+        log.info("Logged in as %s", acct.name)
+
+    def _login_retry(self, why: str) -> None:
+        self.account_var.set("Couldn't reach Nexus to log in - trying again in a minute "
+                             "(your key is kept)")
+        if not getattr(self, "_login_retry_job", None):
+            def again():
+                self._login_retry_job = None
+                if self.client is None and self.key_var.get().strip():
+                    self.login(quiet=True)
+            self._login_retry_job = self.root.after(60_000, again)
 
     def _theme_changed(self) -> None:
         self.theme.apply(self.theme_var.get())
@@ -123,12 +140,18 @@ class AccountMixin:
             try:
                 client = NexusClient(key, disk_cache=nexuscache.shared())
                 acct = client.validate()
-                self._remember_account(key, acct)
-            except NexusError as err:
+            except AuthError as err:
+                log.warning("Login refused: %s", err)
                 self.events.put(("account", f"Login failed: {err}"))
                 return
+            except NexusError as err:
+                # Nexus didn't answer (no internet, Nexus down, too many requests): the key may
+                # be fine, so keep it and try again in a minute.
+                log.warning("Couldn't reach Nexus to log in: %s", err)
+                self.events.put(("login-retry", str(err)))
+                return
             self.client = client
-            self.events.put(("account", f"Logged in as {acct.name} ({acct.kind})"))
+            self.events.put(("login-ok", (key, acct)))
             if not acct.is_premium and not quiet:
                 self.events.put(("error", "This account isn't Premium. Nexus only gives "
                                           "download links to tools for Premium accounts."))

@@ -25,13 +25,13 @@ from ..links import parse_list
 from .. import finder
 from .. import theme as theme_mod
 from ..managers import ManagerError, make_target
-from ..nexus import NexusClient, NexusError
+from ..nexus import AuthError, NexusClient, NexusError
 from .. import appupdate, collections, mo2addon, pictures, compat, gameversion, logs, loot, nexuscache, session, sharing, updates
 from ..logs import log
 from ..scrolling import AutoScroll, wheel_scroll
 from ..text import bbcode_to_text
 from ..engine import rechoose
-from ..selection import annotate, for_other_versions, human_size, human_time, visible_options
+from ..selection import annotate, for_other_versions, human_size, human_time, primary_file, visible_options
 
 
 API_KEY_PAGE = "https://www.nexusmods.com/settings/api-keys"

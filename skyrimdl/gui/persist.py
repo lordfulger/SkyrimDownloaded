@@ -39,7 +39,8 @@ class PersistMixin:
         s.install = self.install_var.get()
         for key, var in self.path_vars.items():
             setattr(s, key, var.get().strip())
-        s.set_api_key(self.key_var.get())
+        if self.key_var.get().strip():  # an empty box doesn't wipe the saved key (Log out does)
+            s.set_api_key(self.key_var.get())
         s.theme = self.theme_var.get()
         if self.client is not None and self.client.rate.daily_remaining is not None:
             s.rate = {"daily": self.client.rate.daily_remaining, "hourly": self.client.rate.hourly_remaining,
@@ -49,8 +50,8 @@ class PersistMixin:
         s.last_list = str(self.list_path) if self.list_path else ""
         try:
             s.save()
-        except OSError:
-            pass
+        except OSError as err:
+            log.warning("Couldn't save the settings: %s", err)
 
     def save_session(self, now: bool = False, wait: bool = False) -> None:
         """Save the work in progress (a moment after each change, and on close)."""

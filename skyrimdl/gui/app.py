@@ -693,7 +693,8 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
             self._later(lambda: messagebox.showerror("SkyrimDownloaded", payload, parent=self._parent()))
         else:
             handler = {
-                "clipboard-login": self._clipboard_login_done, "updates": self._updates_done,
+                "clipboard-login": self._clipboard_login_done, "login-ok": self._login_ok,
+                "login-retry": self._login_retry, "updates": self._updates_done,
                 "compat": self._compat_done, "games": self._games_found, "found": self._apply_found,
                 "requirements": self._requirements_done, "finished": self._finished,
                 "app-update": self._app_update_found, "update-ready": self._update_ready, "collection": self._collection_loaded,

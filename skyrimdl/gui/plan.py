@@ -14,7 +14,85 @@ class PlanMixin:
                          str(plan.entry.mod_id)] + [o.name for o in plan.options]).lower()
         return all(word in text for word in query.lower().split())
 
+    # -- Ctrl+F ------------------------------------------------------------------
+
+    def find(self, event=None):
+        """Ctrl+F: jump to the search box (with the text you selected in the list, if any)."""
+        try:
+            if event is not None and event.widget.winfo_toplevel() is not self.root:
+                return None  # a pop-up window handles its own Ctrl+F
+        except (AttributeError, tk.TclError):
+            pass
+        try:
+            if self.root.focus_get() is self.list_text and self.list_text.tag_ranges("sel"):
+                picked = self.list_text.get("sel.first", "sel.last").strip()
+                if picked and "\n" not in picked:
+                    self.filter_var.set(picked)
+        except tk.TclError:
+            pass
+        self.search_entry.focus_set()
+        self.search_entry.select_range(0, "end")
+        self.search_entry.icursor("end")
+        return "break"
+
+    def _highlight_list(self) -> int:
+        """Mark what you searched for in the mod list (section 3). Returns how many found."""
+        text = self.list_text
+        text.tag_remove("found", "1.0", "end")
+        text.tag_remove("found_now", "1.0", "end")
+        query = self.filter_var.get().strip()
+        if not query:
+            return 0
+        count, start = 0, "1.0"
+        length = tk.IntVar()
+        while True:
+            at = text.search(query, start, "end", nocase=True, count=length)
+            if not at or not length.get():
+                break
+            end = f"{at}+{length.get()}c"
+            text.tag_add("found", at, end)
+            count += 1
+            start = end
+        text.tag_raise("found_now")
+        return count
+
+    def find_next(self, event=None, back: bool = False):
+        """Enter in the search box: the next match in the list (Shift+Enter: the one before)."""
+        query = self.filter_var.get().strip()
+        if not query:
+            return "break"
+        text = self.list_text
+        ranges = text.tag_ranges("found")
+        if not ranges:
+            self._highlight_list()
+            ranges = text.tag_ranges("found")
+        if ranges:
+            now = text.tag_ranges("found_now")
+            starts = [str(ranges[i]) for i in range(0, len(ranges), 2)]
+            ends = [str(ranges[i]) for i in range(1, len(ranges), 2)]
+            i = 0
+            if now:
+                cur = starts.index(str(now[0])) if str(now[0]) in starts else -1
+                i = (cur + (-1 if back else 1)) % len(starts)
+            elif back:
+                i = len(starts) - 1
+            text.tag_remove("found_now", "1.0", "end")
+            text.tag_add("found_now", starts[i], ends[i])
+            text.mark_set("insert", starts[i])
+            text.see(starts[i])
+            self.status_var.set(f"\u201c{query}\u201d: {i + 1} of {len(starts)} in the list "
+                                "(Enter: next, Shift+Enter: back, Esc: clear)")
+        # and the first matching mod in section 4
+        rows = list(self._row_plan)
+        if rows:
+            sel = self.tree.selection()
+            if not sel or sel[0] not in rows:
+                self.tree.selection_set(rows[0])
+                self.tree.see(rows[0])
+        return "break"
+
     def _filter_changed(self) -> None:
+        self._highlight_list()
         if getattr(self, "_filter_job", None):
             self.root.after_cancel(self._filter_job)
         self._filter_job = self.root.after(250, self._fill_tree)  # wait for a pause in typing

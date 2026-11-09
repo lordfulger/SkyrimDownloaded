@@ -147,6 +147,8 @@ class Theme:
                 widget.configure(background=bg, foreground=c["fg"], insertbackground=c["fg"],
                                  selectbackground=c["select"], selectforeground=c["select_fg"],
                                  highlightbackground=c["border"], highlightcolor=c["accent"])
+                widget.tag_configure("found", background=c["choose"])
+                widget.tag_configure("found_now", background=c["select"], foreground=c["select_fg"])
             elif cls == "Listbox":
                 widget.configure(background=c["field"], foreground=c["fg"],
                                  selectbackground=c["select"], selectforeground=c["select_fg"],

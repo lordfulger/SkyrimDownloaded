@@ -53,8 +53,23 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(report.suggestions(), {id(pt): {203: "for Unofficial Skyrim Special Edition Patch, "
                                                                "which is in your list"}})
         self.assertIn("may conflict with SSE Engine Fixes", report.warnings()[id(pt)])
+
         self.assertTrue(report.notes_for(ef))
 
+    def test_warnings_carry_links(self):
+        report = compat.check(self.plans, self.client)
+        pt = self.by_name["Pretty Textures"]
+        needs = [w for w in report.warnings()[id(pt)] if w.before == "needs" and w.name == "SkyUI"]
+        self.assertEqual(len(needs), 1)
+        self.assertEqual(needs[0].url, "https://www.nexusmods.com/skyrimspecialedition/mods/12604")
+        self.assertEqual(needs[0], "needs SkyUI (in your list)")
+        dlc = [w for w in report.warnings()[id(pt)] if w.name == "Fishing"]
+        self.assertEqual(dlc[0].url, "")
+
+    def test_descriptions_are_plain_text(self):
+        from skyrimdl.selection import _plain
+        self.assertEqual(_plain("Needs [url=https://x.y/1]Font Overhaul[/url]<br>[b]Fast[/b]"),
+                         "Needs Font Overhaul\nFast")
     def test_mods_not_in_list_are_ignored(self):
         plans = [p for p in self.plans if p.title in ("Pretty Textures", "SkyUI")]
         report = compat.check(plans, self.client)

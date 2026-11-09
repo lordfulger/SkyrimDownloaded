@@ -38,11 +38,28 @@ class ChoiceDialog(tk.Toplevel):
         self.sub = tk.StringVar()
         ttk.Label(self, textvariable=self.head, style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
         ttk.Label(self, textvariable=self.sub, style="Muted.TLabel", wraplength=760).pack(anchor="w", padx=12)
-        self.warn = tk.StringVar()
-        self.warn_label = ttk.Label(self, textvariable=self.warn, wraplength=760, style="Warn.TLabel")
-        self.warn_label.pack(anchor="w", padx=12)
+        # Warnings like "needs X" - X is a link to its Nexus page.
+        self.warn_box = ttk.Frame(self)
+        self.warn_box.pack(anchor="w", fill="x", padx=12)
+
+        # Ctrl+F: find a file in this mod's list
+        self.find_bar = ttk.Frame(self)
+        ttk.Label(self.find_bar, text="Find a file:").pack(side="left")
+        self.find_var = tk.StringVar()
+        self.find_entry = ttk.Entry(self.find_bar, textvariable=self.find_var, width=34)
+        self.find_entry.pack(side="left", padx=6)
+        self.find_note = tk.StringVar()
+        ttk.Label(self.find_bar, textvariable=self.find_note, style="Muted.TLabel").pack(side="left")
+        ttk.Button(self.find_bar, text="\u2715", width=3, command=self.close_find).pack(side="right")
+        self.find_var.trace_add("write", lambda *a: self.find_file(0))
+        self.find_entry.bind("<Return>", lambda e: self.find_file(1) or "break")
+        self.find_entry.bind("<Shift-Return>", lambda e: self.find_file(-1) or "break")
+        self.find_entry.bind("<Escape>", lambda e: self.close_find() or "break")
+        self._find_at = -1
+        self._file_rows: list[tuple[object, str]] = []
 
         body = ttk.Frame(self)
+        self._body = body
         body.pack(fill="both", expand=True, padx=12, pady=8)
         self.canvas = tk.Canvas(body, highlightthickness=0, yscrollincrement=18)
         sb = ttk.Scrollbar(body, orient="vertical", command=self.canvas.yview)
@@ -66,6 +83,8 @@ class ChoiceDialog(tk.Toplevel):
         ttk.Button(btns, text="Next \u25B6", style="Accent.TButton", command=lambda: self.go(1)).pack(side="right", padx=6)
         ttk.Button(btns, text="Leave this mod out", command=self.leave_out).pack(side="right")
         ttk.Button(btns, text="Skip for now", command=self.skip_for_now).pack(side="right", padx=6)
+        self.bind("<Control-f>", self.open_find)
+        self.bind("<Control-F>", self.open_find)
         self.bind("<Next>", lambda e: self.canvas.yview_scroll(1, "pages"))
         self.bind("<Prior>", lambda e: self.canvas.yview_scroll(-1, "pages"))
         self.protocol("WM_DELETE_WINDOW", self.finish)
@@ -88,11 +107,12 @@ class ChoiceDialog(tk.Toplevel):
         if plan in self.later:
             sub = "You skipped this one earlier - choose now, or Done to leave it for later."
         self.sub.set(sub + (f"   \u2022   your note: {plan.entry.note}" if plan.entry.note else ""))
-        warns = self.warnings.get(id(plan), [])
-        self.warn.set("\u26a0 " + "; ".join(warns) if warns else "")
+        self._show_warnings(self.warnings.get(id(plan), []))
         skipped = f"   \u2022   {len(self.later)} skipped for later" if self.later else ""
         self.count.set(f"Mod {self.index + 1} of {len(self.plans)}{skipped}")
         self.vars = []
+        self._file_rows = []
+        self._find_at = -1
         last_cat = None
         options = visible_options(plan.options, self.include_old, self.include_other)
         hidden = [o for o in for_other_versions(plan.options) if o not in options]
@@ -113,7 +133,9 @@ class ChoiceDialog(tk.Toplevel):
             text = f"{opt.name}   v{opt.version}   ({opt.size_text})" if opt.version else f"{opt.name}   ({opt.size_text})"
             if opt.fit.note and opt.fit.status != "unknown":
                 text += f"   \u2014 {opt.fit.note}"
-            ttk.Checkbutton(self.inner, text=text, variable=var).pack(anchor="w")
+            box = ttk.Checkbutton(self.inner, text=text, variable=var)
+            box.pack(anchor="w")
+            self._file_rows.append((box, f"{text} {opt.file_name} {opt.description}".lower()))
             if opt.file_id in suggested:
                 ttk.Label(self.inner, text=f"\u2605 Suggested patch: {suggested[opt.file_id]}",
                           style="Good.TLabel").pack(anchor="w", padx=24)
@@ -128,6 +150,64 @@ class ChoiceDialog(tk.Toplevel):
             self.autoscroll.attach(w)
         if getattr(self.master, "_theme", None):
             self.master._theme.paint(self)
+        if self.find_bar.winfo_ismapped() and self.find_var.get().strip():
+            self.after_idle(lambda: self.find_file(0))
+
+    # -- Ctrl+F --------------------------------------------------------------
+
+    def open_find(self, event=None):
+        if not self.find_bar.winfo_ismapped():
+            self.find_bar.pack(fill="x", padx=12, pady=(6, 0), before=self._body)
+        self.find_entry.focus_set()
+        self.find_entry.select_range(0, "end")
+        return "break"
+
+    def close_find(self) -> None:
+        self.find_var.set("")
+        self.find_bar.pack_forget()
+        self.focus_set()
+
+    def find_file(self, step: int) -> None:
+        """Scroll to a file matching what you typed. step 0: the first one, 1: next, -1: back."""
+        words = self.find_var.get().lower().split()
+        hits = [w for w, text in self._file_rows if words and all(x in text for x in words)]
+        for w, _ in self._file_rows:
+            try:
+                w.state(["!focus"])
+            except tk.TclError:
+                pass
+        if not words:
+            self.find_note.set("")
+            return
+        if not hits:
+            self.find_note.set("not found")
+            return
+        self._find_at = 0 if step == 0 or self._find_at < 0 else (self._find_at + step) % len(hits)
+        self._find_at = min(self._find_at, len(hits) - 1)
+        w = hits[self._find_at]
+        self.find_note.set(f"{self._find_at + 1} of {len(hits)}   (Enter: next)")
+        self.update_idletasks()
+        total = max(1, self.inner.winfo_height())
+        self.canvas.yview_moveto(max(0.0, (w.winfo_y() - 40) / total))
+        w.state(["focus"])  # draws the focus outline round it, without taking the typing focus
+
+    def _show_warnings(self, warns) -> None:
+        for child in self.warn_box.winfo_children():
+            child.destroy()
+        for w in warns:
+            line = ttk.Frame(self.warn_box)
+            line.pack(anchor="w", fill="x")
+            before = getattr(w, "before", None)
+            if before is None:  # plain text
+                ttk.Label(line, text="\u26a0 " + str(w), style="Warn.TLabel", wraplength=760).pack(side="left")
+                continue
+            ttk.Label(line, text="\u26a0 " + before, style="Warn.TLabel").pack(side="left")
+            if w.url:
+                link_label(line, w.name, w.url).pack(side="left", padx=(4, 0))
+            else:
+                ttk.Label(line, text=w.name, style="Warn.TLabel").pack(side="left", padx=(4, 0))
+            if w.after:
+                ttk.Label(line, text=w.after, style="Warn.TLabel").pack(side="left")
 
     def _show_needs(self, plan) -> None:
         """What this mod needs, with a link to each mod and Add to list for missing ones."""

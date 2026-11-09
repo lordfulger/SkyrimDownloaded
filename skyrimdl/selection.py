@@ -131,11 +131,9 @@ def human_time(seconds: float | None) -> str:
 
 
 def _plain(html: str) -> str:
-    import html as html_mod
-    import re
-    text = re.sub(r"<br\s*/?>", "\n", html, flags=re.I)
-    text = re.sub(r"<[^>]+>", "", text)
-    return html_mod.unescape(text).strip()
+    """File descriptions are BBCode and HTML; show them as plain text."""
+    from .text import bbcode_to_text
+    return bbcode_to_text(html or "")
 
 
 def sort_options(files: list[FileOption]) -> list[FileOption]:

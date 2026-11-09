@@ -53,6 +53,23 @@ _PATCHY = re.compile(r"patch|compatib\w*|integrat\w*|support\w*|add-?on|for user
 _WORKS = re.compile(r"compatible with|works (?:fine |well )?with|work together", re.I)
 
 
+class ModWarning(str):
+    """A warning like "needs X": plain text, plus the mod's name and page for a link."""
+
+    def __new__(cls, before: str, name: str, url: str = "", after: str = ""):
+        text = " ".join(t for t in (before, name) if t) + after
+        self = super().__new__(cls, text)
+        self.before, self.name, self.url, self.after = before, name, url, after
+        return self
+
+
+def _page(plan) -> str:
+    try:
+        return plan.entry.page_url
+    except AttributeError:
+        return ""
+
+
 @dataclass
 class Finding:
     kind: str
@@ -92,16 +109,19 @@ class Report:
             out.setdefault(id(f.plan), {})[f.file_id] = f"for {f.other.title}, which is in your list"
         return out
 
-    def warnings(self) -> dict[int, list[str]]:
-        out: dict[int, list[str]] = {}
+    def warnings(self) -> dict[int, list["ModWarning"]]:
+        """Short warnings per mod (id(plan)). Each is text, and also carries the name
+        and page of the mod it's about, so it can be shown as a link."""
+        out: dict[int, list[ModWarning]] = {}
         for f in self.findings:
             if f.kind == CONFLICT:
-                out.setdefault(id(f.plan), []).append(f"may conflict with {f.other.title}")
-                out.setdefault(id(f.other), []).append(f"{f.plan.title}'s page says it may conflict with this")
+                out.setdefault(id(f.plan), []).append(ModWarning("may conflict with", f.other.title, _page(f.other)))
+                out.setdefault(id(f.other), []).append(
+                    ModWarning("", f.plan.title, _page(f.plan), "'s page says it may conflict with this"))
             elif f.kind == NEEDS:
-                out.setdefault(id(f.plan), []).append(f"needs {f.other.title}")
+                out.setdefault(id(f.plan), []).append(ModWarning("needs", f.other.title, _page(f.other), " (in your list)"))
             elif f.kind == DLC:
-                out.setdefault(id(f.plan), []).append(f"needs {f.evidence or 'game content'}")
+                out.setdefault(id(f.plan), []).append(ModWarning("needs", f.evidence or "game content", ""))
         return out
 
     def notes_for(self, plan) -> list[str]:

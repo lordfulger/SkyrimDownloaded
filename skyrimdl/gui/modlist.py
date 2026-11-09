@@ -172,6 +172,15 @@ class ListMixin:
         """A mod's requirements on Nexus, each with a link and whether it's in the list."""
         key = f"req:{plan.entry.game}/{plan.entry.mod_id}"
         reqs = (self.client._cache.get(key) if self.client else None) or self._req_cache.get(key) or []
+        if not reqs:
+            # Looked up on an earlier run: it's in the saved answers on this PC (no request).
+            try:
+                from ..nexus import Requirement
+                from ..nexuscache import shared
+                saved = shared().get(key)
+                reqs = [Requirement(**r) for r in saved] if saved else []
+            except Exception:
+                reqs = []
         listed = self._listed_mods()
         rows = []
         for r in reqs:

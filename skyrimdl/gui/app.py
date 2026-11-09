@@ -248,6 +248,14 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.filter_var = tk.StringVar()
         search = ttk.Entry(find, textvariable=self.filter_var, width=34)
         search.pack(side="left", padx=6)
+        self.search_entry = search
+        search.bind("<Return>", self.find_next)
+        search.bind("<Shift-Return>", lambda e: self.find_next(e, back=True))
+        search.bind("<Escape>", lambda e: self.filter_var.set(""))
+        # Ctrl+F: search (the list in section 3 and the mods in section 4)
+        for seq in ("<Control-f>", "<Control-F>"):
+            self.root.bind_all(seq, self.find)
+            self.list_text.bind(seq, self.find)  # before the text box's own Ctrl+F
         self.filter_var.trace_add("write", lambda *a: self._filter_changed())
         ttk.Button(find, text="\u2715", width=3, command=lambda: self.filter_var.set("")).pack(side="left")
         bulk_btn = ttk.Menubutton(find, text="Bulk actions \u25be")

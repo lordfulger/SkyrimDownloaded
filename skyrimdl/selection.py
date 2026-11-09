@@ -306,6 +306,89 @@ def prefer_texture(files: list[FileOption], selected: list[int], pref: str | Non
     return result
 
 
+# -- extras nobody needs to be asked about: translations, readmes, sources, old builds --------
+
+_LANG = re.compile(
+    r"\b(?:russian|rus|chinese|chs|cht|japanese|korean|german|deutsch|french|fran[cç]ais|spanish|"
+    r"espa[nñ]ol|italian|italiano|polish|polski|portuguese|pt[- ]?br|brazilian|czech|turkish|ukrainian|"
+    r"hungarian|swedish|dutch|translation|translated|traduction|traducci[oó]n|[uü]bersetzung|"
+    r"locali[sz]ation)\b", re.I)
+_DOCS = re.compile(r"\b(?:readme|read me|documentation|manual|sources?(?: ?code| ?files| ?scripts)?|"
+                   r"psc files|modders? resources?|resources? for modders|dev(?:eloper)? files)\b", re.I)
+_OLDISH = re.compile(r"\b(?:legacy|outdated|deprecated|obsolete|old(?:er)? versions?|beta|alpha|"
+                     r"test(?:ing)?|experimental|wip)\b", re.I)
+
+
+def extra_kind(opt: FileOption) -> str:
+    """"translation", "docs" or "old" for files you'd rarely want; "" otherwise."""
+    text = f"{opt.name} {opt.file_name}"
+    if _LANG.search(text):
+        return "translation"
+    if _DOCS.search(text):
+        return "docs"
+    if _OLDISH.search(opt.name):
+        return "old"
+    return ""
+
+
+def _alike(opt: FileOption, files: list[FileOption]) -> set[int]:
+    """This file and the same thing in another form (ESL / BSA / loose / texture size)."""
+    return {opt.file_id} | {o.file_id for o in siblings(opt, files) + texture_siblings(opt, files)}
+
+
+def real_choices(pool: list[FileOption], files: list[FileOption]) -> list[FileOption]:
+    """The different main files to pick between (forms of the same file count once)."""
+    mains = [f for f in pool if f.category == MAIN] or list(pool)
+    reps: list[FileOption] = []
+    covered: set[int] = set()
+    for f in mains:
+        if f.file_id in covered:
+            continue
+        reps.append(f)
+        covered |= _alike(f, files)
+    return reps
+
+
+def word_score(opt: FileOption, prefer, avoid) -> int:
+    text = f"{opt.name} {opt.file_name}".lower()
+    hit = lambda w: re.search(r"(?<![a-z0-9])" + re.escape(w.lower()) + r"(?![a-z0-9])", text)
+    return sum(1 for w in prefer if w and hit(w)) - 10 * sum(1 for w in avoid if w and hit(w))
+
+
+_DULL_WORDS = {"se", "sse", "ae", "le", "v", "ver", "version", "file", "files", "main", "optional", "mod",
+               "the", "for", "and", "or", "with", "a", "of", "to", "in", "by", "esp", "esl", "bsa", "loose", "k"}
+
+
+def _words(name: str) -> set[str]:
+    """Words of a file name and the pairs next to each other ("no snow", "version 2")."""
+    words = [w for w in re.findall(r"[a-z]+|\d+", (name or "").lower())
+             if not re.fullmatch(r"\d+k|\d{3,}", w)]
+    pairs = {f"{a} {b}" for a, b in zip(words, words[1:])}
+    return {w for w in words if w not in _DULL_WORDS} | pairs
+
+
+def pick_like(chosen: list[FileOption], all_files: list[FileOption], title: str,
+              other_files: list[FileOption], other_title: str) -> list[int]:
+    """Your pick for one mod, applied to a similar mod: the file in ``other_files`` whose
+    name has the most of the same telling words (e.g. "No Snow", "Desaturated", "Version 2").
+    [] when it isn't clear."""
+    current_all = [f for f in all_files if f.category in CURRENT]
+    if not chosen or len(real_choices(current_all, all_files)) < 2:
+        return []
+    shared = set.intersection(*[_words(f.name) for f in current_all])
+    want = set().union(*[_words(f.name) for f in chosen]) - shared - _words(title)
+    if not want:
+        return []
+    current = [f for f in other_files if f.category in CURRENT and not f.fit.hidden]
+    reps = real_choices(current, other_files)
+    if len(reps) < 2:
+        return []
+    scored = sorted(((len(want & _words(r.name)), r) for r in reps), key=lambda t: -t[0])
+    if scored[0][0] == 0 or scored[0][0] == scored[1][0]:
+        return []
+    return prefer_variants(other_files, [scored[0][1].file_id])
+
+
 def primary_file(files: list[FileOption]) -> FileOption | None:
     current = [f for f in files if f.category in CURRENT]
     if not current:
@@ -409,4 +492,44 @@ def choose(entry: ListEntry, files: list[FileOption], remembered: list[int] | No
     if len(current) == 1:
         return Choice(selected, False,
                       "the only file for your game version" + note if hidden else "only one file")
+    if target is not None and getattr(target, "smart", False):
+        decided = _auto_pick(files, current, selected, target, note)
+        if decided is not None:
+            return decided
     return Choice(selected, True, f"{len(current)} files to choose from" + note)
+
+
+def _auto_pick(files, current, selected, target, note) -> "Choice | None":
+    """Your auto-pick settings: leave extras off, follow your word preferences, and only ask
+    when there are several different main files. None = ask as usual."""
+    by_id = {f.file_id: f for f in files}
+    pool = list(current)
+    left_off = ""
+    if target.skip_extras:
+        extras = [f for f in current if extra_kind(f)]
+        if extras and len(extras) < len(current):
+            pool = [f for f in current if f not in extras]
+            kinds = sorted({extra_kind(f) for f in extras})
+            left_off = f" ({len(extras)} {'/'.join(k + 's' if k != 'old' else 'old files' for k in kinds)} left off)"
+            selected[:] = [fid for fid in selected if by_id.get(fid) not in extras] or \
+                prefer_variants(files, [real_choices(pool, files)[0].file_id])
+    reps = real_choices(pool, files)
+    if len(reps) > 1 and (target.prefer or target.avoid):
+        scored = sorted(((word_score(r, target.prefer, target.avoid), r) for r in reps),
+                        key=lambda t: -t[0])
+        if scored[0][0] > scored[1][0] and scored[0][0] >= 0:
+            best = scored[0][1]
+            pick = prefer_variants(files, prefer_texture(files, [best.file_id], target.texture))
+            words = [w for w in target.prefer if word_score(best, [w], [])] or ["not " + w for w in target.avoid]
+            selected[:] = pick
+            reps = [best]
+            if not target.only_real_choices:
+                return Choice(pick, True, f"picked by your words ({', '.join(words[:3])})" + note)
+            return Choice(pick, False, f"picked by your words ({', '.join(words[:3])})" + left_off + note)
+    if len(reps) == 1 and target.only_real_choices:
+        others = [f for f in pool if f.file_id not in _alike(reps[0], files)]
+        why = "only one main file" + (f" - {len(others)} optional file(s) left off" if others else "")
+        return Choice(selected, False, why + left_off + note)
+    if len(pool) < len(current) and len(pool) == 1:
+        return Choice(selected, False, "only one file" + left_off + note)
+    return None

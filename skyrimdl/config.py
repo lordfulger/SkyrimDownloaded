@@ -40,6 +40,11 @@ class Settings:
     game_version: str = ""          # e.g. "1.6.1170"; blank = don't filter by version
     game_store: str = "Steam"       # "Steam", "GOG" or "Game Pass"
     category_separators: bool = False  # MO2: mods under no ## heading go under their Nexus category
+    auto_pick: bool = True          # pick files by the rules below when it can, instead of asking
+    skip_extras: bool = True        # translations, readmes, sources, old/beta files stay unticked
+    only_real_choices: bool = True  # ask only when there are several different main files
+    prefer_words: str = ""          # comma-separated: "ESL, Desaturated"
+    avoid_words: str = ""           # comma-separated: "Loose, Beta"
     texture_size: str = ""          # "1K", "2K", "4K", "8K"; blank = no preference
     check_app_updates: bool = True  # look for a newer SkyrimDownloaded once a day
     # The last login, so opening the app doesn't need to ask Nexus again (saves a request).
@@ -74,7 +79,15 @@ class Settings:
 
     def game_target(self):
         from .gameversion import GameTarget
-        return GameTarget.from_settings(self.game_version, self.game_store, self.texture_size)
+        from dataclasses import replace
+        return replace(GameTarget.from_settings(self.game_version, self.game_store, self.texture_size),
+                       **self.pick_rules())
+
+    def pick_rules(self) -> dict:
+        words = lambda text: tuple(w.strip() for w in (text or "").split(",") if w.strip())
+        return {"smart": bool(self.auto_pick), "skip_extras": bool(self.skip_extras),
+                "only_real_choices": bool(self.only_real_choices),
+                "prefer": words(self.prefer_words), "avoid": words(self.avoid_words)}
 
     def target_paths(self) -> dict[str, str]:
         return {k: getattr(self, k) for k in

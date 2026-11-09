@@ -32,7 +32,7 @@ from ..scrolling import AutoScroll, wheel_scroll
 from ..text import bbcode_to_text
 from ..engine import rechoose
 from ..selection import (TEXTURE_SIZES, annotate, for_other_versions, human_size, human_time, prefer_texture,
-                         prefer_variants, primary_file, texture_sizes, visible_options)
+                         pick_like, prefer_variants, primary_file, texture_sizes, visible_options)
 
 
 NO_TEXTURE_PREF = "Any size"

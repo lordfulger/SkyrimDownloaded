@@ -24,6 +24,7 @@ class ChoiceDialog(tk.Toplevel):
         self.warnings = warnings or {}
         self.requirement_rows = requirement_rows or (lambda plan: [])
         self.add_requirement = add_requirement
+        self.like: dict = {}  # id(plan): {"files": [...], "from": title} - your pick for a similar mod
         # skipped for now (including skips from an earlier visit)
         self.later: list[ModPlan] = [p for p in self.plans if p.reason.startswith("skipped for now")]
         self.index = min(max(0, start), len(self.plans) - 1)
@@ -39,6 +40,8 @@ class ChoiceDialog(tk.Toplevel):
         self.sub = tk.StringVar()
         ttk.Label(self, textvariable=self.head, style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
         ttk.Label(self, textvariable=self.sub, style="Muted.TLabel", wraplength=760).pack(anchor="w", padx=12)
+        ttk.Label(self, text="Keys: 1-9 tick / untick a file \u00b7 Enter = Next \u00b7 Backspace = Back \u00b7 "
+                             "S = Skip for now \u00b7 Ctrl+F = find a file", style="Muted.TLabel").pack(anchor="w", padx=12)
         # Warnings like "needs X" - X is a link to its Nexus page.
         self.warn_box = ttk.Frame(self)
         self.warn_box.pack(anchor="w", fill="x", padx=12)
@@ -76,29 +79,36 @@ class ChoiceDialog(tk.Toplevel):
         self.autoscroll = AutoScroll(self.canvas)
         wheel_scroll(self.canvas, self.inner)
 
-        btns = ttk.Frame(self)
-        btns.pack(fill="x", padx=12, pady=(0, 12))
+        btns = ttk.Frame(self)  # moving around
+        btns.pack(fill="x", padx=12, pady=(0, 4))
         ttk.Button(btns, text="\u25C0 Back", command=lambda: self.go(-1)).pack(side="left")
         ttk.Button(btns, text="Open mod page", command=self.open_page).pack(side="left", padx=6)
         ttk.Button(btns, text="Pictures", command=self.open_pictures).pack(side="left")
         self.count = tk.StringVar()
         ttk.Label(btns, textvariable=self.count).pack(side="left", padx=8)
         # Go back (or ahead) to a mod by its number or name
+        ttk.Label(btns, text="Go to mod:").pack(side="left", padx=(8, 4))
         self.goto_var = tk.StringVar()
-        goto = ttk.Entry(btns, textvariable=self.goto_var, width=7)
+        goto = ttk.Entry(btns, textvariable=self.goto_var, width=8)
         goto.pack(side="left")
         goto.bind("<Return>", lambda e: self.go_to(self.goto_var.get()) or "break")
         ttk.Button(btns, text="Go", width=4, command=lambda: self.go_to(self.goto_var.get())).pack(side="left", padx=(2, 0))
-        ttk.Button(btns, text="Done", command=self.finish).pack(side="right")
-        ttk.Button(btns, text="Next \u25B6", style="Accent.TButton", command=lambda: self.go(1)).pack(side="right", padx=6)
-        ttk.Button(btns, text="Leave this mod out", command=self.leave_out).pack(side="right")
-        ttk.Button(btns, text="Skip for now", command=self.skip_for_now).pack(side="right", padx=6)
+        acts = ttk.Frame(self)  # deciding
+        acts.pack(fill="x", padx=12, pady=(0, 12))
+        ttk.Button(acts, text="Done", command=self.finish).pack(side="right")
+        ttk.Button(acts, text="Next \u25B6", style="Accent.TButton", command=lambda: self.go(1)).pack(side="right", padx=6)
+        ttk.Button(acts, text="Leave this mod out", command=self.leave_out).pack(side="right")
+        ttk.Button(acts, text="Skip for now", command=self.skip_for_now).pack(side="right", padx=6)
+        self.accept_btn = ttk.Button(acts, text="Accept the rest (use what's ticked)", command=self.accept_rest)
+        self.accept_btn.pack(side="left")
+        self.bind("<Key>", self._key)
         self.bind("<Control-f>", self.open_find)
         self.bind("<Control-F>", self.open_find)
         self.bind("<Next>", lambda e: self.canvas.yview_scroll(1, "pages"))
         self.bind("<Prior>", lambda e: self.canvas.yview_scroll(-1, "pages"))
         self.protocol("WM_DELETE_WINDOW", self.finish)
         self.show()
+        self.after(100, self.focus_force)  # so the number keys work straight away
 
     @property
     def plan(self) -> ModPlan:
@@ -155,6 +165,9 @@ class ChoiceDialog(tk.Toplevel):
                     text += "   \u2605 your texture size"
                 elif want in texture_sizes(opt):
                     text += "   \u2014 has your texture size"
+            n = len(self.vars) + 1
+            if n <= 9:
+                text = f"{n}  " + text  # press the number to tick / untick
             box = ttk.Checkbutton(self.inner, text=text, variable=var)
             box.pack(anchor="w")
             self._file_rows.append((box, f"{text} {opt.file_name} {opt.description}".lower()))
@@ -163,6 +176,9 @@ class ChoiceDialog(tk.Toplevel):
                 spot.pack(anchor="w", padx=24, pady=2)
                 spot.bind("<Button-1>", lambda e, u=pics[opt.file_id]: webbrowser.open(u))
                 self._load_picture(spot, pics[opt.file_id])
+            if opt.file_id in self.like.get(id(plan), {}).get("files", []):
+                ttk.Label(self.inner, text=f"\u2605 Same pick as for {self.like[id(plan)]['from']}",
+                          style="Good.TLabel").pack(anchor="w", padx=24)
             if opt.file_id in suggested:
                 ttk.Label(self.inner, text=f"\u2605 Suggested patch: {suggested[opt.file_id]}",
                           style="Good.TLabel").pack(anchor="w", padx=24)
@@ -347,6 +363,7 @@ class ChoiceDialog(tk.Toplevel):
     def commit(self) -> None:
         plan = self.plan
         plan.selected = self._ticked()
+        self._spread_pick(plan)
         plan.needs_choice = False
         plan.reason = "your choice" if plan.selected else "nothing ticked - mod left out"
         if plan in self.later:
@@ -362,6 +379,72 @@ class ChoiceDialog(tk.Toplevel):
             return
         self.index = max(0, new)
         self.show()
+
+    # -- faster choosing ---------------------------------------------------------
+
+    def _key(self, event):
+        """1-9 tick / untick a file, Enter = Next, Backspace = Back, S = Skip for now."""
+        if isinstance(self.focus_get(), (ttk.Entry, tk.Entry)):
+            return None  # typing in Find / Go to
+        if event.char and event.char in "123456789":
+            i = int(event.char) - 1
+            if i < len(self.vars):
+                self.vars[i][0].set(not self.vars[i][0].get())
+            return "break"
+        if event.keysym in ("Return", "KP_Enter"):
+            self.go(1)
+            return "break"
+        if event.keysym == "BackSpace":
+            self.go(-1)
+            return "break"
+        if event.keysym.lower() == "s" and not event.state & 0x4:
+            self.skip_for_now()
+            return "break"
+        return None
+
+    def _spread_pick(self, plan) -> None:
+        """You picked e.g. "No Snow" for one mod: pre-tick the same for that author's other
+        mods still waiting (they're still shown to you, marked \u2605)."""
+        author = (plan.mod.author if plan.mod else "") or ""
+        chosen = plan.selected_options()
+        if not author or not chosen:
+            return
+        for other in self.plans:
+            if other is plan or not other.needs_choice or not other.mod or other.mod.author != author:
+                continue
+            pick = pick_like(chosen, plan.options, plan.title, other.options, other.title)
+            if pick:
+                other.selected = pick
+                other.reason = f"same pick as for {plan.title} - check it"
+                self.like[id(other)] = {"files": pick, "from": plan.title}
+
+    def accept_rest(self) -> None:
+        """Take what's ticked for every mod still waiting (from here on, and the skipped ones),
+        leaving only mods with nothing ticked."""
+        waiting = [p for p in self.plans[self.index:] + self.later if p.needs_choice]
+        waiting = list({id(p): p for p in waiting}.values())
+        if set(self._ticked()) != set(self.plan.selected):
+            self.plan.selected = self._ticked()
+        ok = [p for p in waiting if p.selected]
+        if not ok:
+            self.sub.set("Nothing to accept: the mods left have nothing ticked.")
+            return
+        if not messagebox.askyesno(
+                "Accept the rest", f"Use the ticked files for the {len(ok)} mod(s) still waiting?\n\n"
+                "(They're the main file, your texture size, your word preferences, patches for mods in "
+                "your list, or your pick for a similar mod. You can still change any of them in the list.)"
+                + (f"\n\n{len(waiting) - len(ok)} with nothing ticked stay waiting." if len(waiting) > len(ok) else ""),
+                parent=self):
+            return
+        for p in ok:
+            p.needs_choice = False
+            if not p.reason.startswith("accepted"):
+                p.reason = "accepted the ticked files"
+            if p in self.later:
+                self.later.remove(p)
+        self.autoscroll.stop()
+        self.grab_release()
+        self.destroy()
 
     def go_to(self, where: str) -> None:
         """Jump to mod number N (as counted in this window), or the first mod whose name has
@@ -759,3 +842,56 @@ class ListCheckDialog(tk.Toplevel):
         ttk.Button(btns, text="Close", command=self.destroy).pack(side="right")
         if getattr(master, "_theme", None):
             master._theme.paint(self)
+
+
+class AutoPickDialog(tk.Toplevel):
+    """How files are picked without asking you."""
+
+    def __init__(self, master, settings):
+        super().__init__(master)
+        self.settings = settings
+        self.changed = False
+        self.title("Auto-pick")
+        self.geometry("640x430")
+        self.transient(master)
+        self.grab_set()
+        pad = {"padx": 14, "anchor": "w"}
+        ttk.Label(self, text="Pick files by myself when I can", style="Title.TLabel").pack(pady=(12, 0), **pad)
+        ttk.Label(self, text="Mods these rules decide aren't asked about in Choose options (you can still "
+                             "change them there, or in the list). Mods you picked by hand aren't changed.",
+                  style="Muted.TLabel", wraplength=600).pack(**pad)
+        self.on = tk.BooleanVar(value=settings.auto_pick)
+        self.extras = tk.BooleanVar(value=settings.skip_extras)
+        self.real = tk.BooleanVar(value=settings.only_real_choices)
+        self.prefer = tk.StringVar(value=settings.prefer_words)
+        self.avoid = tk.StringVar(value=settings.avoid_words)
+        ttk.Checkbutton(self, text="Use these rules", variable=self.on).pack(pady=(10, 4), **pad)
+        ttk.Checkbutton(self, text="Leave extras unticked: translations (Russian, Chinese, PT-BR…), readmes, "
+                                   "source files, old / beta / test files", variable=self.extras).pack(**pad)
+        ttk.Checkbutton(self, text="Only ask when there's a real choice: one main file plus optional files = "
+                                   "take the main file, leave the optional ones off", variable=self.real).pack(**pad)
+        ttk.Label(self, text="Words to go for, separated by commas (e.g. ESL, BSA, Desaturated, Performance):"
+                  ).pack(pady=(12, 0), **pad)
+        ttk.Entry(self, textvariable=self.prefer).pack(fill="x", padx=14)
+        ttk.Label(self, text="Words to stay away from (e.g. Loose, Lite, No Snow):").pack(pady=(8, 0), **pad)
+        ttk.Entry(self, textvariable=self.avoid).pack(fill="x", padx=14)
+        ttk.Label(self, text="When a mod has several different main files, the one whose name has the most of "
+                             "your words (and none to avoid) is picked. A tie is asked about.",
+                  style="Muted.TLabel", wraplength=600).pack(pady=(4, 0), **pad)
+        ttk.Label(self, text="Patches for mods in your list are still ticked, and your texture size still "
+                             "applies.", style="Muted.TLabel", wraplength=600).pack(**pad)
+        btns = ttk.Frame(self)
+        btns.pack(fill="x", side="bottom", padx=14, pady=12)
+        ttk.Button(btns, text="Cancel", command=self.destroy).pack(side="right")
+        ttk.Button(btns, text="Save and re-pick", style="Accent.TButton", command=self.save).pack(side="right", padx=6)
+        if getattr(master, "_theme", None):
+            master._theme.paint(self)
+
+    def save(self) -> None:
+        s = self.settings
+        new = (self.on.get(), self.extras.get(), self.real.get(), self.prefer.get().strip(), self.avoid.get().strip())
+        old = (s.auto_pick, s.skip_extras, s.only_real_choices, s.prefer_words, s.avoid_words)
+        if new != old:
+            s.auto_pick, s.skip_extras, s.only_real_choices, s.prefer_words, s.avoid_words = new
+            self.changed = True
+        self.destroy()

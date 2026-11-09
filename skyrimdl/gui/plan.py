@@ -428,6 +428,19 @@ class PlanMixin:
         if plan:
             webbrowser.open(plan.entry.page_url + "?tab=files")
 
+    def auto_pick_settings(self) -> None:
+        from .dialogs import AutoPickDialog
+        dlg = AutoPickDialog(self.root, self.settings)
+        dlg.wait_window()
+        if not dlg.changed:
+            return
+        self._save_settings()
+        before = sum(1 for p in self.plans if p.needs_choice and not p.error)
+        self._version_changed()  # re-picks the mods you haven't picked by hand
+        after = sum(1 for p in self.plans if p.needs_choice and not p.error)
+        if self.plans:
+            self.status_var.set(f"Auto-pick saved: {after} mods left to choose (was {before}).")
+
     def choose_from_here(self, plan) -> None:
         """Choose options again, starting at this mod (and on through the rest)."""
         with_options = [p for p in self.plans if not p.error and not p.skipped and len(visible_options(p.options)) > 1]

@@ -43,11 +43,14 @@ class ManagerMixin:
         if version is None:
             version = text if gameversion.parse_version(text) else ""
         texture = self.texture_var.get() if hasattr(self, "texture_var") else ""
-        return gameversion.GameTarget.from_settings(version, self.store_var.get(),
-                                                    "" if texture == NO_TEXTURE_PREF else texture)
+        from dataclasses import replace
+        return replace(gameversion.GameTarget.from_settings(version, self.store_var.get(),
+                                                            "" if texture == NO_TEXTURE_PREF else texture),
+                       **self.settings.pick_rules())
 
     def _target_key(self, target) -> str:
-        return f"{target.describe()} / textures {target.texture or 'any'}"
+        return (f"{target.describe()} / textures {target.texture or 'any'} / {target.smart} {target.skip_extras} "
+                f"{target.only_real_choices} {target.prefer} {target.avoid}")
 
     def _version_changed(self) -> None:
         target = self._target_game()
@@ -73,6 +76,8 @@ class ManagerMixin:
                 plan.reason = "your pick was for another game version - check it"
             else:
                 rechoose(plan, None, target)
+        if self.plans and self.compat is not None:
+            self.auto_tick_patches(self.compat)  # re-picking dropped the ticked patches
         if self.plans:
             self._fill_tree()
 

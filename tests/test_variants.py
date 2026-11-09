@@ -138,3 +138,56 @@ class OptionPictureTests(unittest.TestCase):
         got = match_images(files, description_images(raw), "SD's Farmhouse Fences SE")
         self.assertEqual(got, {1: "https://x/v2.jpg", 2: "https://x/v1.jpg", 3: "https://x/desat.jpg"})
         self.assertEqual(match_images(files, []), {})
+
+
+class AutoPickTests(unittest.TestCase):
+    def rules(self, **kw):
+        from skyrimdl.gameversion import GameTarget
+        return GameTarget(smart=True, **kw)
+
+    def test_extras_stay_off_and_arent_asked(self):
+        from skyrimdl.selection import extra_kind
+        files = [opt(1, "Cool Mod", 1, primary=True), opt(2, "Cool Mod - Russian Translation", 3),
+                 opt(3, "Cool Mod PT-BR", 3), opt(4, "Readme and Sources", 5)]
+        self.assertEqual([extra_kind(f) for f in files], ["", "translation", "translation", "docs"])
+        choice = choose(parse_line("1")[0], files, target=self.rules())
+        self.assertEqual(choice.selected, [1])
+        self.assertFalse(choice.needs_choice)
+        self.assertIn("left off", choice.reason)
+        # without the rules: asked, as before
+        self.assertTrue(choose(parse_line("1")[0], files).needs_choice)
+
+    def test_one_main_and_optionals_is_not_a_real_choice(self):
+        files = [opt(1, "Cool Mod", 1, primary=True), opt(2, "Optional glow maps", 3), opt(3, "Extra hats", 3)]
+        choice = choose(parse_line("1")[0], files, target=self.rules())
+        self.assertEqual((choice.selected, choice.needs_choice), ([1], False))
+        self.assertIn("2 optional", choice.reason)
+        asked = choose(parse_line("1")[0], files, target=self.rules(only_real_choices=False))
+        self.assertTrue(asked.needs_choice)
+
+    def test_several_mains_are_asked_unless_your_words_decide(self):
+        files = [opt(1, "Fences Version 1", 1, primary=True), opt(2, "Fences Version 2", 1),
+                 opt(3, "Fences Desaturated", 1)]
+        self.assertTrue(choose(parse_line("1")[0], files, target=self.rules()).needs_choice)
+        choice = choose(parse_line("1")[0], files, target=self.rules(prefer=("Desaturated",)))
+        self.assertEqual((choice.selected, choice.needs_choice), ([3], False))
+        choice = choose(parse_line("1")[0], files, target=self.rules(avoid=("Version 1", "Desaturated")))
+        self.assertEqual((choice.selected, choice.needs_choice), ([2], False))
+        # a tie is still asked
+        self.assertTrue(choose(parse_line("1")[0], files, target=self.rules(prefer=("Fences",))).needs_choice)
+
+    def test_forms_of_one_file_are_one_choice(self):
+        files = [opt(1, "Trees - Loose", 1, primary=True), opt(2, "Trees - BSA", 1), opt(3, "Trees 4K", 3)]
+        choice = choose(parse_line("1")[0], files, target=self.rules())
+        self.assertEqual((choice.selected, choice.needs_choice), ([2], False))
+
+
+class PickLikeTests(unittest.TestCase):
+    def test_same_words_for_a_similar_mod(self):
+        from skyrimdl.selection import pick_like
+        a = [opt(1, "Rocks - Snow", 1, primary=True), opt(2, "Rocks - No Snow", 1)]
+        b = [opt(11, "Trees - Snow", 1, primary=True), opt(12, "Trees - No Snow", 1), opt(13, "Trees readme", 5)]
+        self.assertEqual(pick_like([a[1]], a, "Author Rocks", b, "Author Trees"), [12])
+        self.assertEqual(pick_like([a[0]], a, "Author Rocks", b, "Author Trees"), [])  # "snow" fits both: unclear
+        c = [opt(21, "Grass 1K", 1, primary=True), opt(22, "Grass 2K", 1)]
+        self.assertEqual(pick_like([a[1]], a, "Author Rocks", c, "Author Grass"), [])  # no such words

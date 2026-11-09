@@ -78,6 +78,12 @@ class GameTarget:
     version: Version | None = None
     store: str = "Steam"
     texture: str = ""    # texture size you want ("2K"); blank = no preference
+    # Auto-pick settings (used when ``smart``): see selection._auto_pick
+    smart: bool = False
+    skip_extras: bool = True        # translations, readmes, sources, old/beta files stay unticked
+    only_real_choices: bool = True  # one main file + optional extras: no need to ask
+    prefer: tuple = ()              # words to go for ("ESL", "Desaturated")
+    avoid: tuple = ()               # words to stay away from ("Loose", "Beta")
 
     @classmethod
     def from_settings(cls, version: str, store: str, texture: str = "") -> "GameTarget":

@@ -263,6 +263,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.compat_btn.pack(side="left", padx=4)
         self.updates_btn = ttk.Button(tools, text="Check for updates", command=self.check_for_updates)
         self.updates_btn.pack(side="left")
+        ttk.Button(tools, text="Auto-pick\u2026", command=self.auto_pick_settings).pack(side="left", padx=4)
         self.listcheck_btn = ttk.Button(tools, text="Check list", command=self.check_list)
         self.listcheck_btn.pack(side="left", padx=4)
         ttk.Button(tools, text="Open mod page", command=self.open_page).pack(side="left", padx=4)

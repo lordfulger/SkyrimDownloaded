@@ -79,7 +79,15 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
    - **Textures:** pick 1K, 2K, 4K or 8K. When a mod offers the same textures in several sizes ("1K", "2K", "2K4K", "2048"...), your size is picked by itself (or the closest: the next size down, then up; a mix like 2K4K counts for 2K and 4K). If those sizes were the only choice, the mod isn't asked about. Files picked in the list (`match=`, `file=`) or by you earlier stay as they are; **Bulk actions → Use my texture size** changes those too.
 4. **Mod list:** open a `.txt` file, or type or paste links into the box. Then press **Look up mods**.
    - **Find** above the box (or **Ctrl+F** while you're in the list) marks every match in the list. **Enter** or **▼** goes to the next one, **Shift+Enter** or **▲** to the one before, **Esc** clears it.
-5. **Choose options:** for every mod with more than one file, a window steps you through them one at a time. Tick the files you want.
+5. **Choose options:** for every mod with a real choice to make, a window steps you through them one at a time. Tick the files you want.
+   - **Auto-pick…** (above the list of mods) sets which mods are decided without asking. On by default:
+     - **Extras stay unticked:** translations (Russian, Chinese, PT-BR…), readmes, source files, old / beta / test files. A mod where those were the only other files isn't asked about.
+     - **Only real choices are asked:** one main file plus optional files means the main file is taken and the optional ones left off. Forms of the same file (ESL / BSA / loose, texture sizes) count as one. Mods with several different main files are still asked about.
+     - **Words to go for / stay away from** (e.g. "ESL, Desaturated" / "Loose, No Snow"): between several main files, the one with the most of your words, and none to avoid, is picked. A tie is asked about.
+     - Patches for mods in your list are still ticked, and your texture size still applies. **Save and re-pick** applies the rules to every mod you haven't picked by hand.
+   - **Keys:** 1-9 tick or untick a file (the number is shown before it), **Enter** = Next, **Backspace** = Back, **S** = Skip for now, **Ctrl+F** = find a file.
+   - **Same pick for similar mods:** when you pick e.g. "No Snow" or "Version 2" for one mod, that author's other mods still waiting get the file with the same words ticked, marked ★ "Same pick as for …".
+   - **Accept the rest** takes what's ticked for every mod still waiting (main file, your texture size, your words, patches, your pick for a similar mod). Mods with nothing ticked stay waiting.
    - **Next** chooses the ticked files and moves on. **Back** goes to the previous mod without choosing anything for the one you're on, unless you changed its ticks.
    - **Done** pauses. The mod on screen isn't chosen for you unless you changed its ticks. Press **Choose options…** later and it carries on at the first mod still waiting, with **Back** for the ones before it. Your place is kept even if you close the app.
    - **Skip for now** puts a mod off; it comes back after all the others. Mods still skipped or waiting stay highlighted in the list.

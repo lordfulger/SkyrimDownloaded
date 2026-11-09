@@ -192,7 +192,10 @@ class NexusClient:
             "Protocol-Version": "1.0.0",
         }
 
-    def _get(self, path: str, params: dict | None = None, *, cache: bool = True):
+    def _get(self, path: str, params: dict | None = None, *, cache: bool = True, form: dict | None = None):
+        """GET (or POST ``form``) a Nexus API path; JSON back."""
+        if form is not None:
+            cache = False
         url = self.base_url + path
         if params:
             url += "?" + urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
@@ -212,7 +215,12 @@ class NexusClient:
         while True:
             attempt += 1
             self._check_stop()
-            req = urllib.request.Request(url, headers=self._headers())
+            if form is not None:
+                headers = dict(self._headers(), **{"Content-Type": "application/x-www-form-urlencoded"})
+                req = urllib.request.Request(url, headers=headers, method="POST",
+                                             data=urllib.parse.urlencode(form).encode())
+            else:
+                req = urllib.request.Request(url, headers=self._headers())
             with self._lock:
                 self.requests_made += 1
             try:
@@ -301,6 +309,19 @@ class NexusClient:
         if fresh:
             self._forget(path)
         return ModInfo.from_api(game, self._get(path))
+
+    def categories(self, game: str) -> dict[int, str]:
+        """{category id: name} for a game's mods (one request, then saved)."""
+        data = self._get(f"/games/{game}.json") or {}
+        return {int(c["category_id"]): str(c.get("name") or "") for c in data.get("categories") or []
+                if c.get("category_id") is not None}
+
+    def track(self, game: str, mod_id: int) -> None:
+        """Track a mod on Nexus (the site then tells you about its updates)."""
+        self._get("/user/tracked_mods.json", {"domain_name": game}, form={"mod_id": int(mod_id)})
+
+    def endorse(self, game: str, mod_id: int, version: str = "") -> None:
+        self._get(f"/games/{game}/mods/{int(mod_id)}/endorse.json", form={"version": version or ""})
 
     def files(self, game: str, mod_id: int) -> list[dict]:
         return self.files_and_updates(game, mod_id)[0]

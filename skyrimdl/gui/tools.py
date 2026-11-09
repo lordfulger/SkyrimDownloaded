@@ -29,6 +29,95 @@ class ToolsMixin:
         messagebox.showinfo("Share", f"Saved {path}.\n\nSend it to anyone with SkyrimDownloaded: opening "
                             "it and pressing Look up mods gives them exactly the same files.", parent=self._parent())
 
+    # -- Check list: plugins, disk space, duplicates, replaced mods, sizes ----------
+
+    def check_list(self) -> None:
+        if not self.plans:
+            messagebox.showinfo("Check list", "Look up the mods in your list first.", parent=self._parent())
+            return
+        from .. import listcheck
+        plans = list(self.plans)
+        try:
+            target = self._target()
+        except ManagerError:
+            target = None
+        self.status_var.set("Checking your list\u2026")
+        cancel = self.new_operation()
+        cache = nexuscache.shared()
+        list_text = self.list_text.get("1.0", "end-1c")
+
+        def work():
+            plugins = listcheck.count_plugins(
+                plans, fetch=lambda url: listcheck.fetch_preview(url, cache), cancel=cancel,
+                on_progress=lambda d, t: d % 10 == 0 and self.events.put(
+                    ("status", f"Reading the file lists of the picked files: {d} of {t}")))
+            installed = self._installed_in_mo2(target) if target else {}
+            result = {
+                "plugins": plugins,
+                "duplicates": listcheck.duplicates(list_text, self.settings.game),
+                "retired": listcheck.retired(plans),
+                "sizes": listcheck.size_by_texture(plans),
+                "textured": listcheck.textured_mods(plans),
+                "installed": installed,
+                "space": self._space_for(target, jobs_for(plans)) if target else [],
+            }
+            cache.flush()
+            self.events.put(("listcheck", result))
+        self._background(work)
+
+    def _listcheck_done(self, result) -> None:
+        from .dialogs import ListCheckDialog
+        p = result["plugins"]
+        self.status_var.set(f"List checked: about {p.total_full} regular plugins (limit 254), "
+                            f"{p.light} light (ESL).")
+        ListCheckDialog(self.root, result, self.plans, texture=self._target_game().texture)
+
+    def nexus_bulk(self, action: str) -> None:
+        """Track or endorse every mod shown (all of them, or the ones matching the search)."""
+        if self.client is None:
+            messagebox.showinfo("Nexus", "Log in first.", parent=self._parent())
+            return
+        query = self.filter_var.get().strip()
+        mods = [p for p in self.plans if p.mod and not p.error and not p.skipped and self._matches(p, query)]
+        mods = list({(p.entry.game, p.entry.mod_id): p for p in mods}.values())
+        if not mods:
+            messagebox.showinfo("Nexus", "Look up the mods in your list first.", parent=self._parent())
+            return
+        what = ("track" if action == "track" else "endorse")
+        did = "Tracked" if action == "track" else "Endorsed"
+        if not messagebox.askyesno(
+                "Nexus", f"{what.capitalize()} {len(mods)} mod(s) on Nexus with your account?\n\nThis uses one "
+                "request per mod." + (" Only endorse mods you've actually used - Nexus may refuse ones you "
+                                      "haven't downloaded." if action == "endorse" else ""),
+                parent=self._parent()):
+            return
+        if not self._requests_ok(len(mods), f"{what.capitalize()} {len(mods)} mods"):
+            return
+        client = self.client
+        self.new_operation()
+
+        def work():
+            done, failed = 0, []
+            for i, p in enumerate(mods, 1):
+                try:
+                    if action == "track":
+                        client.track(p.entry.game, p.entry.mod_id)
+                    else:
+                        client.endorse(p.entry.game, p.entry.mod_id, p.mod.version)
+                    done += 1
+                except NexusError as err:
+                    if isinstance(err, (AuthError,)) or "stopped" in str(err):
+                        failed.append(f"{p.title}: {err}")
+                        break
+                    failed.append(f"{p.title}: {err}")
+                self.events.put(("status", f"{did} {i} of {len(mods)}"))
+            msg = f"{did} {done} of {len(mods)} mods on Nexus."
+            if failed:
+                msg += "\n\nDidn't work:\n" + "\n".join(failed[:12])
+            self.events.put(("status", msg.split("\n")[0]))
+            self.events.put(("info", msg))
+        self._background(work)
+
     def check_for_updates(self) -> None:
         if not self.plans:
             messagebox.showinfo("Updates", "Look up the mods in your list first.", parent=self._parent())

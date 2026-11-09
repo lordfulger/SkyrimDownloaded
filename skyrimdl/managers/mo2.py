@@ -140,6 +140,21 @@ class MO2Target(Target):
         downloads = downloads.replace("%BASE_DIR%", base)
         return Path(os.path.expandvars(downloads))
 
+    def mods_dir(self) -> Path | None:
+        """MO2's mods folder (where installed mods live)."""
+        inst = self.instance_dir
+        if not inst:
+            return None
+        settings = self.settings()
+        base = (settings.get("Settings/base_directory") or str(inst)).replace("%BASE_DIR%", str(inst))
+        mods = (settings.get("Settings/mod_directory") or "%BASE_DIR%/mods").replace("%BASE_DIR%", base)
+        return Path(os.path.expandvars(mods))
+
+    def installed(self) -> dict:
+        """What's installed in MO2: {(mod id, file id): version} and {mod id: version}."""
+        folder = self.mods_dir()
+        return read_installed(folder) if folder else {}
+
     def exe(self) -> Path:
         candidates = []
         if self._exe:
@@ -169,6 +184,56 @@ class MO2Target(Target):
     def after_download(self, path: Path, mod: ModInfo, option: FileOption, install: bool) -> str:
         write_meta(path, mod, option, self.game)
         return "in MO2's Downloads tab"
+
+
+def read_installed(mods_dir: Path) -> dict:
+    """Read each installed mod's meta.ini. Returns {"files": {(mod id, file id): version},
+    "mods": {mod id: version}, "names": {mod id: folder name}}."""
+    files: dict = {}
+    mods: dict = {}
+    names: dict = {}
+    try:
+        folders = [d for d in Path(mods_dir).iterdir() if d.is_dir()]
+    except OSError:
+        return {"files": files, "mods": mods, "names": names}
+    for d in folders:
+        try:
+            text = (d / "meta.ini").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        general = _section(text, "General")
+        try:
+            mod_id = int(general.get("modid", "0").strip('"') or 0)
+        except ValueError:
+            mod_id = 0
+        version = general.get("version", "").strip('"')
+        if mod_id > 0:
+            mods[mod_id] = version
+            names[mod_id] = d.name
+        for key, value in _section(text, "installedFiles").items():
+            if key.endswith("\\fileid") or key.endswith("/fileid"):
+                prefix = key[: -len("fileid")]
+                try:
+                    fid = int(value)
+                    mid = int(_section(text, "installedFiles").get(prefix + "modid", mod_id) or mod_id)
+                except ValueError:
+                    continue
+                if mid > 0 and fid > 0:
+                    files[(mid, fid)] = version
+    return {"files": files, "mods": mods, "names": names}
+
+
+def _section(text: str, name: str) -> dict:
+    out, inside = {}, False
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("[") and line.endswith("]"):
+            inside = line[1:-1].lower() == name.lower()
+            continue
+        if inside and "=" in line:
+            k, _, v = line.partition("=")
+            out[k.strip().lower()] = v.strip()
+    return out
 
 
 def _q(value: object) -> str:

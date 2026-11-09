@@ -41,8 +41,15 @@ def write_plan(downloads: Path, jobs, auto_install: bool = False) -> Path:
             "file_id": job.option.file_id,
             "file": job.option.name,
             "archive": safe_file_name(job.option.file_name),
-            "separator": getattr(job.plan.entry, "section", "") or "",
+            "separator": getattr(job, "separator", None) or getattr(job.plan.entry, "section", "") or "",
         })
+    if any(getattr(j, "by_category", False) for j in jobs):
+        # Category separators: keep each separator's mods together (in list order), the
+        # separators in the order they first come up.
+        first: dict = {}
+        for i, m in enumerate(mods):
+            first.setdefault(m["separator"], i)
+        mods = [m for _, m in sorted(enumerate(mods), key=lambda t: (first[t[1]["separator"]], t[0]))]
     path = downloads / PLAN_FILE
     downloads.mkdir(parents=True, exist_ok=True)
     plan = {"format": 1, "id": f"{time.time():.3f}", "auto_install": bool(auto_install), "mods": mods}

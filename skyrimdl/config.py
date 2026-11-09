@@ -39,6 +39,7 @@ class Settings:
     theme: str = "System"           # "System", "Light" or "Dark"
     game_version: str = ""          # e.g. "1.6.1170"; blank = don't filter by version
     game_store: str = "Steam"       # "Steam", "GOG" or "Game Pass"
+    category_separators: bool = False  # MO2: mods under no ## heading go under their Nexus category
     texture_size: str = ""          # "1K", "2K", "4K", "8K"; blank = no preference
     check_app_updates: bool = True  # look for a newer SkyrimDownloaded once a day
     # The last login, so opening the app doesn't need to ask Nexus again (saves a request).

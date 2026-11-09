@@ -18,6 +18,7 @@ class PersistMixin:
         self.manager_var.set(s.manager if s.manager in ("mo2", "vortex") else "mo2")
         self.mode_var.set(s.mode if s.mode in ("handoff", "direct") else "handoff")
         self.install_var.set(s.install)
+        self.category_var.set(bool(s.category_separators))
         for key, var in self.path_vars.items():
             var.set(getattr(s, key, ""))
         for var in self.path_vars.values():
@@ -38,6 +39,7 @@ class PersistMixin:
         s.manager = self.manager_var.get()
         s.mode = self.mode_var.get()
         s.install = self.install_var.get()
+        s.category_separators = self.category_var.get()
         for key, var in self.path_vars.items():
             setattr(s, key, var.get().strip())
         if self.key_var.get().strip():  # an empty box doesn't wipe the saved key (Log out does)

@@ -152,6 +152,11 @@ class Handler(BaseHTTPRequestHandler):
             state["fail_429"] -= 1
             return self._json(429, {"message": "slow down"}, {"Retry-After": "0"})
         parts = path.strip("/").split("/")
+        if parts[1:] == ["games", "skyrimspecialedition.json"]:
+            return self._json(200, {"name": "Skyrim Special Edition", "categories": [
+                {"category_id": 29, "name": "Environmental", "parent_category": 1},
+                {"category_id": 42, "name": "User Interface", "parent_category": 1},
+                {"category_id": 84, "name": "Patches", "parent_category": 1}]})
         # /v1/users/validate.json
         if parts[1:] == ["users", "validate.json"]:
             return self._json(200, {"user_id": 7, "name": "Dovahkiin", "is_premium": key == GOOD_KEY,
@@ -191,6 +196,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _cdn(self, fid):
         state = self.server.state
+        if state.get("cdn_fail", 0) > 0:  # the download server is down, this many times
+            state["cdn_fail"] -= 1
+            return self._json(503, {"message": "busy"})
         data = PAYLOADS[fid]
         start = 0
         rng = self.headers.get("Range")
@@ -251,8 +259,15 @@ DLC_REQUIREMENTS = {
 
 def _post(self):
     length = int(self.headers.get("Content-Length") or 0)
-    body = json.loads(self.rfile.read(length) or b"{}")
+    raw = self.rfile.read(length) or b""
     self.server.state["requests"].append("POST " + self.path)
+    if self.path.startswith("/v1/"):  # track / endorse (form posts)
+        from urllib.parse import parse_qs
+        self.server.state.setdefault("posted", []).append((urlsplit(self.path).path, parse_qs(raw.decode())))
+        if self.headers.get("apikey") != GOOD_KEY:
+            return self._json(401, {"message": "Please provide a valid API Key"})
+        return self._json(200, {"message": "ok", "status": "Endorsed"})
+    body = json.loads(raw or b"{}")
     if self.server.state.get("graphql_down"):
         return self._json(500, {"errors": [{"message": "down"}]})
     if "collectionRevision" in body.get("query", ""):

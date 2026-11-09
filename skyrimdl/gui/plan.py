@@ -428,13 +428,36 @@ class PlanMixin:
         if plan:
             webbrowser.open(plan.entry.page_url + "?tab=files")
 
-    def walk_choices(self, plans: list | None = None, review: bool = False) -> None:
+    def choose_from_here(self, plan) -> None:
+        """Choose options again, starting at this mod (and on through the rest)."""
+        with_options = [p for p in self.plans if not p.error and not p.skipped and len(visible_options(p.options)) > 1]
+        if plan not in with_options:
+            with_options = [p for p in self.plans if not p.error and not p.skipped and p.options]
+        if plan not in with_options:
+            return
+        self.walk_choices(plans=with_options, start=with_options.index(plan))
+
+    def _tree_menu(self, event) -> None:
+        row = self.tree.identify_row(event.y)
+        plan = self._row_plan.get(row) or (self._row_option.get(row) or (None,))[0]
+        if plan is None:
+            return
+        self.tree.selection_set(row)
+        menu = tk.Menu(self.tree, tearoff=False)
+        menu.add_command(label=f"Choose options from here ({plan.title[:40]})",
+                         command=lambda: self._later(self.choose_from_here, plan))
+        menu.add_command(label="Open mod page", command=lambda: webbrowser.open(plan.entry.page_url))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def walk_choices(self, plans: list | None = None, review: bool = False, start: int = 0) -> None:
         """Step through the mods with options, one at a time, like a collection install.
 
         Opens at the first mod still waiting for a choice (where you left off), with the
         ones before it reachable with Back; mods skipped for now come last. Once every
         mod has been chosen, the mods are checked for links with each other."""
-        start = 0
         if plans is None:
             with_options = [p for p in self.plans if not p.error and not p.skipped and
                             (p.needs_choice or len(visible_options(p.options)) > 1)]

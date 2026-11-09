@@ -83,6 +83,12 @@ class ChoiceDialog(tk.Toplevel):
         ttk.Button(btns, text="Pictures", command=self.open_pictures).pack(side="left")
         self.count = tk.StringVar()
         ttk.Label(btns, textvariable=self.count).pack(side="left", padx=8)
+        # Go back (or ahead) to a mod by its number or name
+        self.goto_var = tk.StringVar()
+        goto = ttk.Entry(btns, textvariable=self.goto_var, width=7)
+        goto.pack(side="left")
+        goto.bind("<Return>", lambda e: self.go_to(self.goto_var.get()) or "break")
+        ttk.Button(btns, text="Go", width=4, command=lambda: self.go_to(self.goto_var.get())).pack(side="left", padx=(2, 0))
         ttk.Button(btns, text="Done", command=self.finish).pack(side="right")
         ttk.Button(btns, text="Next \u25B6", style="Accent.TButton", command=lambda: self.go(1)).pack(side="right", padx=6)
         ttk.Button(btns, text="Leave this mod out", command=self.leave_out).pack(side="right")
@@ -357,6 +363,30 @@ class ChoiceDialog(tk.Toplevel):
         self.index = max(0, new)
         self.show()
 
+    def go_to(self, where: str) -> None:
+        """Jump to mod number N (as counted in this window), or the first mod whose name has
+        the text you typed. The mod on screen keeps any change you made to it."""
+        where = (where or "").strip()
+        if not where:
+            return
+        if where.isdigit():
+            new = int(where) - 1
+            if not 0 <= new < len(self.plans):
+                self.sub.set(f"There's no mod {where} - pick 1 to {len(self.plans)}.")
+                return
+        else:
+            hits = [i for i, p in enumerate(self.plans) if where.lower() in p.title.lower()]
+            if not hits:
+                self.sub.set(f"No mod here has \u201c{where}\u201d in its name.")
+                return
+            after = [i for i in hits if i > self.index]  # pressing Go again finds the next one
+            new = after[0] if after else hits[0]
+        if set(self._ticked()) != set(self.plan.selected):
+            self.commit()
+        self.index = new
+        self.goto_var.set("")
+        self.show()
+
     def skip_for_now(self) -> None:
         """Put this mod off: it comes back after all the others."""
         plan = self.plan
@@ -592,3 +622,140 @@ class CompatDialog(tk.Toplevel):
         self.choice = "review"
         self.destroy()
 
+
+
+class ListCheckDialog(tk.Toplevel):
+    """Check list: plugin count, disk space, already installed, duplicates, replaced or
+    abandoned mods, and the download size for each texture size."""
+
+    def __init__(self, master, result: dict, plans: list, texture: str = ""):
+        from .. import listcheck
+        super().__init__(master)
+        self.title("Check list")
+        self.geometry("860x620")
+        self.transient(master)
+        ttk.Label(self, text="Your list, checked", style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
+        ttk.Label(self, text="Before downloading: what could go wrong once it's all installed.",
+                  style="Muted.TLabel").pack(anchor="w", padx=12)
+        body = ttk.Frame(self)
+        body.pack(fill="both", expand=True, padx=12, pady=8)
+        text = tk.Text(body, wrap="word", relief="flat", highlightthickness=1, padx=10, pady=8,
+                       font="TkDefaultFont")
+        text._details = True
+        sb = ttk.Scrollbar(body, orient="vertical", command=text.yview)
+        text.configure(yscrollcommand=sb.set)
+        text.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        AutoScroll(text)
+        theme = getattr(master, "_theme", None)
+        c = theme.colors if theme else {"muted": "#555", "error": "#b00020", "done": "#1b7a1b", "accent": "#2a6ad8"}
+        text.tag_configure("h", font=("TkDefaultFont", 11, "bold"), spacing1=12, spacing3=4)
+        text.tag_configure("meta", foreground=c["muted"])
+        text.tag_configure("warn", foreground=c["error"])
+        text.tag_configure("good", foreground=c["done"])
+        self._links = 0
+
+        def put(s, *tags):
+            text.insert("end", s, tags)
+
+        def link(label, url):
+            self._links += 1
+            tag = f"link{self._links}"
+            text.tag_configure(tag, foreground=c.get("accent", "#2a6ad8"), underline=True)
+            text.tag_bind(tag, "<Button-1>", lambda e, u=url: webbrowser.open(u))
+            text.tag_bind(tag, "<Enter>", lambda e: text.configure(cursor="hand2"))
+            text.tag_bind(tag, "<Leave>", lambda e: text.configure(cursor=""))
+            text.insert("end", label, (tag,))
+
+        # 1. Plugins
+        p = result["plugins"]
+        put("Plugins\n", "h")
+        tag = "warn" if p.total_full > listcheck.PLUGIN_LIMIT - 10 else "good"
+        put(f"About {p.total_full} regular plugins (.esp / .esm, counting the 5 from the game) - Skyrim's limit "
+            f"is {listcheck.PLUGIN_LIMIT}.\n", tag)
+        put(f"{p.light} light plugins (.esl or ESL-flagged) - these don't count towards the limit.\n")
+        if p.optional:
+            put(f"Up to {p.optional} more come from installer options, depending on what you pick there.\n", "meta")
+        if p.unknown_files:
+            put(f"{p.unknown_files} file(s) don't show their contents on Nexus, so they're not counted.\n", "meta")
+        if p.total_full > listcheck.PLUGIN_LIMIT - 10:
+            put("Too close to the limit: look for ESL versions of the mods below, or merge plugins.\n", "warn")
+        heavy = sorted(((plan, opt, [x for x in pl if not x.light and not x.optional]) for plan, opt, pl in p.by_mod),
+                       key=lambda t: -len(t[2]))
+        heavy = [t for t in heavy if t[2]][:15]
+        if heavy:
+            put("Most regular plugins:\n", "meta")
+            for plan, opt, pl in heavy:
+                put("  ")
+                link(plan.title, plan.entry.page_url)
+                put(f"  {len(pl)}: " + ", ".join(x.name for x in pl[:6]) + ("…" if len(pl) > 6 else "") + "\n",
+                    "meta")
+        put("ESL-flagged .esp files can't be told apart from the file list, so the count goes by the file "
+            "names and descriptions (\"ESL\", \"ESPFE\").\n", "meta")
+
+        # 2. Disk space
+        put("Disk space\n", "h")
+        if not result["space"]:
+            put("Set up your mod manager in step 2 to check the drives.\n", "meta")
+        for sp in result["space"]:
+            free = human_size(sp.free) if sp.free is not None else "?"
+            put(f"{sp.folder}: needs about {human_size(sp.need)}, {free} free\n", "good" if sp.enough else "warn")
+        put(f"Installed mods take about {listcheck.INSTALL_FACTOR:g}x their download size (a guess: archives "
+            "are compressed). Files already in the downloads folder aren't counted.\n", "meta")
+
+        # 3. Already installed
+        installed = result.get("installed") or {}
+        if installed.get("mods"):
+            have = [pl for pl in plans if pl.entry.mod_id in installed["mods"]]
+            same = [pl for pl in have if pl.selected and all((pl.entry.mod_id, f) in installed["files"]
+                                                            for f in pl.selected)]
+            put("Already in MO2\n", "h")
+            put(f"{len(have)} of your mods are installed in MO2; for {len(same)} of them the files you picked "
+                "are the ones installed. Start downloads offers to skip those.\n")
+
+        # 4. Duplicates
+        dups = result["duplicates"]
+        put("In the list twice\n", "h")
+        if not dups:
+            put("None.\n", "good")
+        titles = {p.entry.key: p for p in plans}
+        for key, lines in dups:
+            put("\u2022 ")
+            p = titles.get(key)
+            game, _, mod_id = key.partition("/")
+            link(p.title if p else key, f"https://www.nexusmods.com/{game}/mods/{mod_id}")
+            put(f"  lines {', '.join(map(str, lines))} (only got once)\n", "meta")
+
+        # 5. Replaced / abandoned
+        put("Replaced, merged or not updated in years\n", "h")
+        retired = result["retired"]
+        if not retired:
+            put("None found.\n", "good")
+        for r in sorted(retired, key=lambda r: (not r.why, r.updated)):
+            put("⚠ " if r.why else "• ", "warn" if r.why else "meta")
+            link(r.plan.title, r.plan.entry.page_url)
+            if r.updated:
+                put("  last updated " + time.strftime("%b %Y", time.localtime(r.updated)), "meta")
+            put("\n")
+            if r.why:
+                put(f"      “{r.why[:220]}”\n", "meta")
+            for u in r.links[:3]:
+                put("      → ")
+                link(u, u)
+                put("\n")
+
+        # 6. Sizes
+        sizes = result["sizes"]
+        put("Download size\n", "h")
+        put(f"As picked now: {human_size(sizes['now'])}\n")
+        if result["textured"]:
+            put(f"{result['textured']} mods come in several texture sizes. With every one of them at:\n", "meta")
+            for size in TEXTURE_SIZES:
+                mark = "   ← your setting" if size == texture else ""
+                put(f"   {size}: {human_size(sizes[size])}{mark}\n")
+        text.configure(state="disabled")
+        btns = ttk.Frame(self)
+        btns.pack(fill="x", padx=12, pady=(0, 12))
+        ttk.Button(btns, text="Close", command=self.destroy).pack(side="right")
+        if getattr(master, "_theme", None):
+            master._theme.paint(self)

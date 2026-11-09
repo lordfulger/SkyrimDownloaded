@@ -159,6 +159,8 @@ class Job:
     note: str = ""
     path: Path | None = None
     speed: float = 0.0            # bytes per second, smoothed
+    separator: str = ""           # the MO2 separator it goes under
+    by_category: bool = False     # ...named after its Nexus category
     _last: tuple[float, int] | None = field(default=None, repr=False)
 
     @property
@@ -197,10 +199,16 @@ def jobs_for(plans: list[ModPlan]) -> list[Job]:
     return jobs
 
 
+#: Download attempts after the first, and the waits between them (seconds).
+RETRIES = 3
+RETRY_WAIT = (5, 20, 60)
+
+
 class Runner:
     def __init__(self, client: NexusClient, target: Target, *, mode: str = "handoff",
                  install: bool = True, parallel: int = 3, redownload: bool = False,
-                 on_event: EventFn | None = None, cancel: threading.Event | None = None):
+                 on_event: EventFn | None = None, cancel: threading.Event | None = None,
+                 category_separators: bool = False):
         if mode not in ("handoff", "direct"):
             raise ValueError("mode must be 'handoff' or 'direct'")
         self.client = client
@@ -212,6 +220,7 @@ class Runner:
         self.on_event = on_event or (lambda job: None)
         self.cancel = cancel or threading.Event()
         self._launch_lock = threading.Lock()
+        self.category_separators = category_separators
 
     def _emit(self, job: Job, state: str | None = None, note: str | None = None) -> None:
         if state is not None and state != job.state and state in (FAILED, DONE, SENT):
@@ -229,7 +238,25 @@ class Runner:
             return entry.nxm_key, entry.nxm_expires
         return None, None
 
+    def _set_separators(self, jobs: list[Job]) -> None:
+        """Mods under no "## heading" in the list go under a separator named after their
+        Nexus category (Textures, User Interface...)."""
+        names: dict = {}
+        if self.category_separators:
+            games = {j.plan.entry.game for j in jobs}
+            for game in games:
+                try:
+                    names[game] = self.client.categories(game)
+                except NexusError:
+                    logging.getLogger("skyrimdl").warning("Couldn't get Nexus's categories for %s", game)
+        for job in jobs:
+            entry, mod = job.plan.entry, job.plan.mod
+            category = names.get(entry.game, {}).get(mod.category_id) if mod and mod.category_id else None
+            job.separator = entry.section or category or ""
+            job.by_category = bool(category) and not entry.section
+
     def run(self, jobs: list[Job]) -> list[Job]:
+        self._set_separators(jobs)
         try:
             self.target.prepare(jobs, install=self.install)
         except Exception:
@@ -288,9 +315,24 @@ class Runner:
                 job.track(done)
                 self._emit(job, WORKING, "")
 
-            job.path = download(urls, dest, partial_dir=self.target.partial_dir(),
-                                expected_size=job.option.size_bytes, progress=progress,
-                                cancel=self.cancel)
+            for attempt in range(1, RETRIES + 2):
+                try:
+                    job.path = download(urls, dest, partial_dir=self.target.partial_dir(),
+                                        expected_size=job.option.size_bytes, progress=progress,
+                                        cancel=self.cancel)
+                    break
+                except (OSError, RuntimeError) as err:
+                    if attempt > RETRIES or isinstance(err, Cancelled):
+                        raise
+                    # A dropped connection or a busy server: wait, then carry on from where it got to.
+                    wait = RETRY_WAIT[min(attempt, len(RETRY_WAIT)) - 1]
+                    self._emit(job, WORKING, f"connection problem ({err}) - trying again in {wait} s "
+                                             f"(try {attempt + 1} of {RETRIES + 1})")
+                    if self.cancel.wait(wait):
+                        raise Cancelled() from None
+                    if attempt >= 2:  # the link may have expired: ask for a new one
+                        urls = self.client.download_links(entry.game, entry.mod_id, job.option.file_id,
+                                                          key=key, expires=expires)
             with self._launch_lock:
                 note = self.target.after_download(job.path, job.plan.mod, job.option, self.install)
             self._emit(job, DONE, note)

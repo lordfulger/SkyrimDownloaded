@@ -59,6 +59,25 @@ class DownloadMixin:
         if not self.jobs:
             messagebox.showinfo("SkyrimDownloaded", "No files ticked.", parent=self._parent())
             return
+        # Already installed in MO2 (the same file)? Don't get it again.
+        installed = self._installed_in_mo2(target)
+        have = [j for j in self.jobs if (j.plan.entry.mod_id, j.option.file_id) in installed.get("files", {})]
+        if have and messagebox.askyesno(
+                "Already installed",
+                f"{len(have)} of the {len(self.jobs)} files are already installed in MO2 (the same file "
+                "from Nexus).\n\nSkip them?", parent=self._parent()):
+            self.jobs = [j for j in self.jobs if j not in have]
+            if not self.jobs:
+                messagebox.showinfo("SkyrimDownloaded", "Everything ticked is already installed.",
+                                    parent=self._parent())
+                return
+        # Room on the drives?
+        short = [sp for sp in self._space_for(target, self.jobs) if not sp.enough]
+        if short and not messagebox.askyesno(
+                "Not enough disk space",
+                "\n".join(f"{sp.folder}: needs about {human_size(sp.need)}, {human_size(sp.free)} free"
+                          for sp in short) + "\n\nStart anyway?", icon="warning", parent=self._parent()):
+            return
         self._map_job_rows()
         for row, plan in self._row_plan.items():  # show each file's progress
             self.tree.item(row, open=bool(plan.selected) and not plan.error)
@@ -67,13 +86,42 @@ class DownloadMixin:
         self.new_operation()
         runner = Runner(self.client, target, mode=mode, install=self.install_var.get(),
                         parallel=self.settings.parallel,
-                        on_event=lambda job: self.events.put(("job", job)), cancel=self.cancel)
+                        on_event=lambda job: self.events.put(("job", job)), cancel=self.cancel,
+                        category_separators=target.name == "Mod Organizer 2" and self.category_var.get())
         jobs = self.jobs
 
         def work():
             runner.run(jobs)
             self.events.put(("finished", jobs))
         self._background(work)
+
+    def _installed_in_mo2(self, target) -> dict:
+        if target.name != "Mod Organizer 2":
+            return {}
+        try:
+            return target.installed()
+        except Exception:
+            log.exception("reading MO2's installed mods")
+            return {}
+
+    def _space_for(self, target, jobs) -> list:
+        """Disk space for these downloads (and for installing them, with MO2)."""
+        from .. import listcheck
+        try:
+            downloads = target.downloads_dir()
+        except ManagerError:
+            downloads = None
+        mods = target.mods_dir() if hasattr(target, "mods_dir") and self.install_var.get() else None
+        picked = {id(j.option) for j in jobs}
+
+        class _Plan:  # just the files of these jobs
+            def __init__(self, opts):
+                self._opts, self.error, self.skipped = opts, None, False
+
+            def selected_options(self):
+                return self._opts
+        return listcheck.space_needed([_Plan([j.option for j in jobs])], downloads, mods,
+                                      already=lambda o: id(o) not in picked or bool(target.existing(o)))
 
     def _map_job_rows(self) -> None:
         self._job_rows.clear()
@@ -155,7 +203,31 @@ class DownloadMixin:
                     "\"SkyrimDownloaded: install downloaded mods\"" + ("" if self.addon_btn.cget("text").endswith("\u2713")
                     else " - add it first with \"Add installer to MO2\" in step 2") + ". Or install them one by "
                     "one from MO2's Downloads tab.")
+        if failed:
+            if messagebox.askyesno("SkyrimDownloaded", msg + f"\n\nTry the {len(failed)} that didn't work again?",
+                                   parent=self._parent()):
+                self.retry_failed(failed)
+            return
         messagebox.showinfo("SkyrimDownloaded", msg, parent=self._parent())
+
+    def retry_failed(self, failed) -> None:
+        """Send / download just the files that didn't work (finished ones are skipped anyway)."""
+        try:
+            target = self._target()
+        except ManagerError as err:
+            messagebox.showerror("SkyrimDownloaded", str(err), parent=self._parent())
+            return
+        for job in failed:
+            job.state, job.note, job.done_bytes = QUEUED, "trying again", 0
+        self.new_operation()
+        runner = Runner(self.client, target, mode=self.mode_var.get(), install=self.install_var.get(),
+                        parallel=self.settings.parallel,
+                        on_event=lambda job: self.events.put(("job", job)), cancel=self.cancel)
+
+        def work():
+            runner.run(failed)
+            self.events.put(("finished", self.jobs))
+        self._background(work)
 
     def stop(self) -> None:
         self.cancel.set()

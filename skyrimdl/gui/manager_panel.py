@@ -24,6 +24,8 @@ class ManagerMixin:
                        command=lambda k=key, w=what: self._browse(k, w)).grid(row=row, column=2)
         self.paths.columnconfigure(1, weight=1)
         self.install_check.configure(state="normal")
+        if hasattr(self, "category_check"):
+            self.category_check.configure(state="normal" if kind == "mo2" else "disabled")
         if kind == "mo2":
             try:
                 has = mo2addon.addon_installed(self._target().exe())

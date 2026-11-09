@@ -219,3 +219,29 @@ class AddonTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CategorySeparatorTests(unittest.TestCase):
+    def test_mods_without_a_heading_go_under_their_category(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from skyrimdl.engine import Runner, jobs_for, resolve
+        from skyrimdl.links import parse_list
+        from skyrimdl.managers.mo2 import MO2Target
+        from skyrimdl.nexus import NexusClient
+        from tests.fake_nexus import FakeNexus, GOOD_KEY
+        with FakeNexus() as fake, tempfile.TemporaryDirectory() as tmp:
+            inst = Path(tmp)
+            (inst / "ModOrganizer.ini").write_text("[General]\ngameName=Skyrim Special Edition\n", encoding="utf-8")
+            (inst / "ModOrganizer.exe").write_text("")
+            client = NexusClient(GOOD_KEY, base_url=fake.base)
+            plans = resolve(client, parse_list("12604\n1000 | file=201\n## My UI\n266\n17230 | file=402\n")[0])
+            target = MO2Target("skyrimspecialedition", instance=inst)
+            target._launch = lambda args: None
+            Runner(client, target, mode="handoff", category_separators=True).run(jobs_for(plans))
+            mods = json.loads((inst / "downloads" / "SkyrimDownloaded-install.json").read_text())["mods"]
+        got = [(m["name"], m["separator"]) for m in mods]
+        self.assertEqual(got, [("SkyUI", "User Interface"), ("Pretty Textures", "Environmental"),
+                               ("Unofficial Skyrim Special Edition Patch", "My UI"),
+                               ("SSE Engine Fixes", "My UI")])

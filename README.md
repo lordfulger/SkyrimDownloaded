@@ -84,6 +84,7 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
    - **Done** pauses. The mod on screen isn't chosen for you unless you changed its ticks. Press **Choose options…** later and it carries on at the first mod still waiting, with **Back** for the ones before it. Your place is kept even if you close the app.
    - **Skip for now** puts a mod off; it comes back after all the others. Mods still skipped or waiting stay highlighted in the list.
    - **Leave this mod out** drops it from this download.
+   - **Go to a mod:** type its number (as in "Mod 58 of 949") or part of its name in the box next to the count and press **Go** or Enter. Typing a name again finds the next match. In the main list, **right-click a mod → Choose options from here** to go over the choices again from that mod onwards.
    - Pictures from the mod's description are shown under the file they're about (e.g. "Version 1", "Desaturated"); click one to open it full size. **Pictures** opens the mod's image gallery on Nexus in your browser (Nexus doesn't let programs read the gallery).
    - The wheel, middle-click scrolling and Page Up/Down all scroll the list of files. **Ctrl+F** finds a file in the list (**Enter** for the next match).
    - Warnings at the top ("needs …", "may conflict with …") link to that mod's Nexus page: click the name. After "needs …" it says whether that mod will be downloaded: **✓ in your list**, **Add to list** if it isn't in your list, or **Include it** if it's in your list but left out.
@@ -96,9 +97,17 @@ Use **Theme** at the top right: **System** follows Windows' light/dark app setti
      - untick files for other game versions
      - keep only the main files
      - expand or collapse everything
-6. **Check compatibility** (optional, whenever you like) shows how the mods in your list relate to each other (see below). It then offers to **review** the mods involved, with suggested patches already ticked.
-7. **Start downloads.** For "Mod manager downloads", open MO2 or Vortex on your Skyrim setup first. When downloading here, each file shows its speed and time left, and the bottom bar shows the total. If you stop part way, start again later and it carries on where it left off.
-8. **Sort with LOOT** once the mods are installed, to sort the load order (see below).
+     - track every mod on Nexus (the site then tells you about updates), or endorse every mod. One request per mod.
+6. **Check list** (optional) checks the whole list before you download:
+   - **Plugins:** counts the regular plugins (.esp / .esm) in the files you picked, from each archive's file list on Nexus, against Skyrim's limit of about 254. Light plugins (.esl, or files that say they're ESL-flagged) don't count. Plugins inside installer options are counted separately ("up to"), as they depend on what you pick there.
+   - **Disk space:** what the downloads (and, when installing, the installed mods: about 1.5x) need, against the free space on those drives. **Start downloads** also warns you if there isn't enough room.
+   - **Already in MO2:** mods already installed in your MO2 instance. **Start downloads** offers to skip files that are installed already (the same file from Nexus).
+   - **In the list twice:** the lines a mod is on more than once (it's only downloaded once).
+   - **Replaced, merged or not updated in years:** mods whose page says they've been merged into, replaced by or are no longer needed (with links to what replaced them), and mods not updated in over 4 years.
+   - **Download size:** now, and with every mod at 1K, 2K, 4K or 8K textures.
+7. **Check compatibility** (optional, whenever you like) shows how the mods in your list relate to each other (see below). It then offers to **review** the mods involved, with suggested patches already ticked.
+8. **Start downloads.** For "Mod manager downloads", open MO2 or Vortex on your Skyrim setup first. When downloading here, each file shows its speed and time left, and the bottom bar shows the total. If you stop part way, start again later and it carries on where it left off. A download that breaks off is tried again by itself (up to 3 more times, carrying on from where it got to); files that still fail can be tried again at the end.
+9. **Sort with LOOT** once the mods are installed, to sort the load order (see below).
 
 ## Picking files for your Skyrim version
 
@@ -137,6 +146,8 @@ Tick **Install after download** in step 2 and press **Start downloads**. Then:
    - **showing the options window for mods that have installer options (FOMOD)**, so you choose those as you go
    - **skipping mods that are already installed**, and installing a mod's extra files as separate mods (no merge or replace questions)
 3. The mods then go to the bottom of MO2's left pane **in your list's order, under your list's separators**, and are switched on.
+
+**Separators by Nexus category** (step 2): mods that aren't under a `##` heading in your list go under a separator named after their Nexus category (Textures, User Interface, Animation…), grouped together. Your own headings always come first.
 
 **Separators:** a line in your list starting with `##` becomes an MO2 separator, and the mods below it go under it:
 

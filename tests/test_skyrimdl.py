@@ -190,6 +190,20 @@ class ApiAndDownloadTests(unittest.TestCase):
         Runner(self.client, target, mode="direct").run(again)
         self.assertEqual([j.state for j in again], [SKIPPED, SKIPPED])
 
+    def test_direct_download_tries_again(self):
+        from skyrimdl import engine
+        target = VortexTarget("skyrimspecialedition", downloads=self.tmp / "dl", exe=self.tmp / "Vortex.exe")
+        plans = resolve(self.client, parse_list("12604")[0])
+        jobs = jobs_for(plans)
+        self.fake.state["cdn_fail"] = 3
+        old = engine.RETRY_WAIT
+        engine.RETRY_WAIT = (0, 0, 0)
+        try:
+            Runner(self.client, target, mode="direct").run(jobs)
+        finally:
+            engine.RETRY_WAIT = old
+        self.assertEqual(jobs[0].state, DONE, jobs[0].note)
+
     def test_handoff_sends_nxm_links(self):
         target = VortexTarget("skyrimspecialedition", downloads=self.tmp, exe=self.tmp / "Vortex.exe")
         (self.tmp / "Vortex.exe").write_text("")

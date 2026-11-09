@@ -122,6 +122,10 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.install_check = ttk.Checkbutton(top, text="Install after download",
                                              variable=self.install_var)
         self.install_check.pack(side="left", padx=12)
+        self.category_var = tk.BooleanVar(value=False)
+        self.category_check = ttk.Checkbutton(top, text="Separators by Nexus category",
+                                              variable=self.category_var, command=self._save_settings)
+        self.category_check.pack(side="left")
 
         self.paths = ttk.Frame(mgr)
         self.paths.pack(fill="x", padx=6, pady=(0, 6))
@@ -259,6 +263,8 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.compat_btn.pack(side="left", padx=4)
         self.updates_btn = ttk.Button(tools, text="Check for updates", command=self.check_for_updates)
         self.updates_btn.pack(side="left")
+        self.listcheck_btn = ttk.Button(tools, text="Check list", command=self.check_list)
+        self.listcheck_btn.pack(side="left", padx=4)
         ttk.Button(tools, text="Open mod page", command=self.open_page).pack(side="left", padx=4)
         self.old_var = tk.BooleanVar(value=False)
         self.other_var = tk.BooleanVar(value=False)
@@ -294,6 +300,10 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         bulk.add_command(label="Use my texture size (also for mods I picked by hand)",
                          command=lambda: self.bulk("texture"))
         bulk.add_separator()
+        bulk.add_command(label="Track every mod on Nexus (get told about updates)",
+                         command=lambda: self.nexus_bulk("track"))
+        bulk.add_command(label="Endorse every mod (thank the authors)", command=lambda: self.nexus_bulk("endorse"))
+        bulk.add_separator()
         bulk.add_command(label="Expand all", command=lambda: self.bulk("expand"))
         bulk.add_command(label="Collapse all", command=lambda: self.bulk("collapse"))
         bulk_btn["menu"] = bulk
@@ -320,6 +330,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.tree.bind("<space>", lambda e: self._toggle(self.tree.focus()))
         self.tree.bind("<<TreeviewSelect>>", self._show_details)
         self.tree.bind("<Double-1>", self._tree_double)
+        self.tree.bind("<Button-3>", self._tree_menu)  # right-click: Choose options from here
         AutoScroll(self.tree)
         split.add(frame, weight=3)
 
@@ -381,6 +392,7 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         self.find_btn.configure(state=state)
         self.compat_btn.configure(state=state)
         self.updates_btn.configure(state=state)
+        self.listcheck_btn.configure(state=state)
         self.start_btn.configure(state=state)
         self.stop_btn.configure(state="normal" if busy else "disabled")
 
@@ -717,12 +729,15 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
             self.where_var.set(payload)
         elif kind == "idle":
             self._set_busy(False)
+        elif kind == "info":
+            self._later(lambda: messagebox.showinfo("SkyrimDownloaded", payload, parent=self._parent()))
         elif kind == "error":
             log.error("Background error: %s", payload)
             self._later(lambda: messagebox.showerror("SkyrimDownloaded", payload, parent=self._parent()))
         else:
             handler = {
                 "clipboard-login": self._clipboard_login_done, "login-ok": self._login_ok,
+                "listcheck": self._listcheck_done,
                 "login-retry": self._login_retry, "updates": self._updates_done,
                 "compat": self._compat_done, "games": self._games_found, "found": self._apply_found,
                 "requirements": self._requirements_done, "finished": self._finished,

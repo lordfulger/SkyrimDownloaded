@@ -1,6 +1,6 @@
 ; SkyrimDownloaded installer (Inno Setup 6). Built by the GitHub workflow:
 ;   ISCC /DAppVersion=1.2.3 installer\SkyrimDownloaded.iss
-; It packs the folder build of the app (dist\app\SkyrimDownloaded) into dist\SkyrimDownloaded-Setup.exe.
+; It packs the folder build of the app (dist\app\SkyrimDownloaded) into dist\SkyrimDownloadedSetup.exe.
 ;
 ; By default it installs for the current user only (in %LOCALAPPDATA%\Programs), so no admin
 ; rights are needed and updates can install themselves. Settings, lists and the login live in
@@ -28,7 +28,7 @@ PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\dist
-OutputBaseFilename=SkyrimDownloaded-Setup
+OutputBaseFilename=SkyrimDownloadedSetup
 SetupIconFile=..\assets\icon.ico
 UninstallDisplayIcon={app}\SkyrimDownloaded.exe
 UninstallDisplayName=SkyrimDownloaded

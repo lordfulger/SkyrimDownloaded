@@ -85,7 +85,7 @@ jobs:
         shell: pwsh
         run: |
           $dir = Join-Path $env:RUNNER_TEMP "sd install test"
-          $p = Start-Process dist\SkyrimDownloaded-Setup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CURRENTUSER","/DIR=`"$dir`"" -PassThru
+          $p = Start-Process dist\SkyrimDownloadedSetup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CURRENTUSER","/DIR=`"$dir`"" -PassThru
           if (-not $p.WaitForExit(300000)) { Write-Error "The installer didn't finish"; exit 1 }
           if ($p.ExitCode -ne 0) { Write-Error "Installer exit code $($p.ExitCode)"; exit 1 }
           foreach ($f in "SkyrimDownloaded.exe", "unins000.exe", "_internal") {
@@ -159,7 +159,7 @@ jobs:
           endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
           trusted-signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
-          files: ${{ github.workspace }}\dist\SkyrimDownloaded-Setup.exe
+          files: ${{ github.workspace }}\dist\SkyrimDownloadedSetup.exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
@@ -169,7 +169,7 @@ jobs:
           name: SkyrimDownloaded-windows
           path: |
             dist/SkyrimDownloaded.exe
-            dist/SkyrimDownloaded-Setup.exe
+            dist/SkyrimDownloadedSetup.exe
 
   release:
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release)
@@ -198,7 +198,7 @@ jobs:
           fi
           signed="${{ vars.SIGNPATH_ORGANIZATION_ID != '' || vars.AZURE_SIGNING_ACCOUNT != '' }}"
           {
-            echo "**Download:** \`SkyrimDownloaded-Setup.exe\` below to install it (Start menu entry, updates install themselves, uninstall from Windows Settings; no admin rights needed), or \`SkyrimDownloaded.exe\` to run it without installing. Needs a Nexus Mods Premium account."
+            echo "**Download:** \`SkyrimDownloadedSetup.exe\` below to install it (Start menu entry, updates install themselves, uninstall from Windows Settings; no admin rights needed), or \`SkyrimDownloaded.exe\` to run it without installing. Needs a Nexus Mods Premium account."
             echo
             if [ "$signed" != "true" ]; then
               echo "Windows may say *\"Windows protected your PC\"* the first time: click **More info**, then **Run anyway**. The app isn't code-signed yet."
@@ -206,8 +206,9 @@ jobs:
             fi
             echo "See the [README](https://github.com/${GITHUB_REPOSITORY}/blob/${tag}/README.md) for how to use it."
           } > notes.md
-          # The single .exe first: versions before 1.17 update from the first .exe of a release.
-          gh release create "$tag" dist/SkyrimDownloaded.exe --target "$GITHUB_SHA" \
+          # Versions before 1.17 update from the first .exe of a release, so the single .exe must
+          # come first: its name sorts first, and it's uploaded last (newest-first listings).
+          gh release create "$tag" dist/SkyrimDownloadedSetup.exe --target "$GITHUB_SHA" \
             --title "SkyrimDownloaded $tag" \
             --notes-file notes.md --generate-notes
-          gh release upload "$tag" dist/SkyrimDownloaded-Setup.exe
+          gh release upload "$tag" dist/SkyrimDownloaded.exe

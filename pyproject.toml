@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "skyrimdownloaded"
-version = "1.17.0"
+version = "1.17.1"
 description = "Download a list of Nexus Mods links into Mod Organizer 2 or Vortex, choosing each mod's file options"
 readme = "README.md"
 license = {text = "MIT"}

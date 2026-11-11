@@ -116,7 +116,7 @@ class WindowsSwapTests(unittest.TestCase):
         from unittest import mock
         folder = Path(tempfile.mkdtemp(prefix="with space "))
         marker = folder / "ran.txt"
-        setup = folder / "fake setup.cmd"  # stands in for SkyrimDownloaded-Setup.exe
+        setup = folder / "fake setup.cmd"  # stands in for SkyrimDownloadedSetup.exe
         setup.write_text(f'@echo %* > "{marker}"\r\n', encoding="ascii")
         app_exe = folder / "reopened.cmd"   # stands in for the installed app
         reopened = folder / "reopened.txt"

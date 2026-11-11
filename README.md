@@ -32,7 +32,7 @@ Both need **Premium**. Nexus only gives tools download links for Premium account
 ## Setup (Windows)
 
 ### Option A: install it (recommended)
-Download `SkyrimDownloaded-Setup.exe` from the [latest release](https://github.com/lordfulger/SkyrimDownloaded/releases/latest) and run it.
+Download `SkyrimDownloadedSetup.exe` from the [latest release](https://github.com/lordfulger/SkyrimDownloaded/releases/latest) and run it.
 - It installs for your Windows user only (in `%LOCALAPPDATA%\Programs\SkyrimDownloaded`), so **no admin rights** are needed. To install for everyone on the PC, pick that when the installer asks.
 - You get a **Start menu** entry, and a desktop shortcut if you tick it.
 - It **starts faster** than the single .exe (nothing to unpack each time).

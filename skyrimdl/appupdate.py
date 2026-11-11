@@ -15,7 +15,9 @@ from dataclasses import dataclass
 from . import __version__
 
 PORTABLE_NAME = "SkyrimDownloaded.exe"         # the single .exe, runs from anywhere
-SETUP_NAME = "SkyrimDownloaded-Setup.exe"      # the installer
+# The installer. Named so it sorts after the single .exe: versions before 1.17 update from
+# the first .exe of a release.
+SETUP_NAME = "SkyrimDownloadedSetup.exe"
 LATEST_URL = "https://api.github.com/repos/lordfulger/SkyrimDownloaded/releases/latest"
 RELEASES_PAGE = "https://github.com/lordfulger/SkyrimDownloaded/releases/latest"
 
@@ -27,7 +29,7 @@ class NewVersion:
     exe_url: str = ""
     sha256: str = ""         # GitHub publishes each release file's checksum
     size: int | None = None
-    setup_url: str = ""      # the installer (SkyrimDownloaded-Setup.exe), for installed copies
+    setup_url: str = ""      # the installer (SkyrimDownloadedSetup.exe), for installed copies
     setup_sha256: str = ""
     setup_size: int | None = None
 
@@ -85,7 +87,7 @@ def check(url: str = LATEST_URL, current: str = __version__, timeout: float = 10
     named = lambda name: next((a for a in assets if str(a.get("name", "")).lower() == name.lower()), None)
     asset = named(PORTABLE_NAME) or next((a for a in assets if str(a.get("name", "")).lower().endswith(".exe")
                                           and "setup" not in str(a.get("name", "")).lower()), {}) or {}
-    setup = named(SETUP_NAME) or {}
+    setup = named(SETUP_NAME) or next((a for a in assets if "setup" in str(a.get("name", "")).lower()), {})
     sha = lambda a: str(a.get("digest") or "").split(":", 1)[1] if str(a.get("digest") or "").startswith("sha256:") else ""
     return NewVersion(tag.lstrip("v"), data.get("html_url") or RELEASES_PAGE,
                       asset.get("browser_download_url") or "", sha(asset), asset.get("size"),
@@ -137,7 +139,7 @@ def download_setup(found: NewVersion, folder: Path, progress=None, cancel=None) 
     """Download the installer and check it (checksum when GitHub gives one)."""
     from .downloader import download
     safe = "".join(c for c in str(found.version) if c.isalnum() or c in ".-") or "new"
-    dest = folder / f"SkyrimDownloaded-Setup-{safe}.exe"
+    dest = folder / f"SkyrimDownloadedSetup-{safe}.exe"
     partial = folder / ".skyrimdl-partial"
     try:
         path = download([found.setup_url], dest, partial_dir=partial, expected_size=found.setup_size,

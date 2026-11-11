@@ -65,7 +65,7 @@ jobs:
           python -m PyInstaller --onefile --windowed --name SkyrimDownloaded @iconArgs run_skyrimdl.py
           # ...and the folder build the installer packs (starts faster: nothing to unpack each time).
           python -m PyInstaller --onedir --windowed --name SkyrimDownloaded @iconArgs `
-            --distpath dist/app --workpath build/app --specpath build/app-spec run_skyrimdl.py
+            --distpath dist/app --workpath build/app run_skyrimdl.py
       - name: Check it starts
         run: python -c "import skyrimdl.gui, skyrimdl.cli; print('ok')"
 

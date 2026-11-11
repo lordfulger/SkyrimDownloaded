@@ -92,6 +92,9 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
         help_menu.add_command(label="Copy debug info", command=self.copy_debug_info)
         help_menu.add_command(label="Open log folder", command=self.open_log_folder)
         help_menu.add_command(label="Check for a new version / update", command=lambda: self.check_app_update(force=True))
+        if not appupdate.is_installed():
+            help_menu.add_command(label="Install on this PC (Start menu, faster start)\u2026",
+                                  command=self.install_on_pc)
         help_menu.add_separator()
         help_menu.add_command(label="Read the guide (README)",
                               command=lambda: webbrowser.open("https://github.com/lordfulger/SkyrimDownloaded#readme"))
@@ -530,6 +533,13 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
             messagebox.showinfo("Update", "Wait for the current downloads or lookups to finish first.",
                                 parent=self._parent())
             return
+        if appupdate.is_installed() and found.setup_url:
+            if messagebox.askyesno(
+                    "Update", f"Update to version {found.version}?\n\nThe new installer downloads, then "
+                    "SkyrimDownloaded closes, updates itself and reopens. Your work is saved and comes back.",
+                    parent=self._parent()):
+                self._run_installer(found, silent=True)
+            return
         target = appupdate.update_target(exe)
         where = "" if target == exe else (
             f"\n\nThe folder it's in can't be written to, so the new version goes to {target.parent} "
@@ -554,6 +564,56 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                 return
             self.events.put(("update-ready", (path, target)))
         self._background(work)
+
+    def install_on_pc(self) -> None:
+        """Help > Install on this PC: get this version's installer and run it."""
+        if appupdate.is_installed():
+            messagebox.showinfo("Install", "SkyrimDownloaded is already installed on this PC (this is the "
+                                "installed copy).", parent=self._parent())
+            return
+        if appupdate.running_exe() is None or sys.platform != "win32":
+            webbrowser.open(appupdate.RELEASES_PAGE)
+            return
+        if not messagebox.askyesno(
+                "Install on this PC", "Install SkyrimDownloaded on this PC?\n\nYou get a Start menu entry "
+                "(and a desktop shortcut if you like), it starts faster, updates install themselves, and it "
+                "can be uninstalled from Windows Settings. No admin rights needed. Your settings, list and "
+                "login stay as they are.\n\nThe installer downloads, then this window closes and the "
+                "installer opens.", parent=self._parent()):
+            return
+        found = appupdate.NewVersion(__version__, appupdate.RELEASES_PAGE,
+                                     setup_url=appupdate.setup_url_for(__version__))
+        self._run_installer(found, silent=False)
+
+    def _run_installer(self, found, silent: bool) -> None:
+        self.update_btn.configure(state="disabled")
+        folder = appupdate.cache_folder()
+
+        def progress(done, total):
+            if total:
+                self.events.put(("status", f"Downloading the installer: {100 * done // max(total, 1)}%"))
+
+        def work():
+            try:
+                path = appupdate.download_setup(found, folder, progress=progress)
+            except Exception as err:
+                self.events.put(("update-failed", str(err)))
+                return
+            self.events.put(("installer-ready", (path, silent)))
+        self._background(work)
+
+    def _installer_ready(self, path, silent) -> None:
+        log.info("Installer downloaded to %s (silent=%s)", path, silent)
+        self._save_settings()
+        self.save_session(now=True, wait=True)
+        try:
+            appupdate.start_install(path, os.getpid(), silent=silent)
+        except OSError as err:
+            messagebox.showerror("Update", f"Couldn't start the installer: {err}", parent=self._parent())
+            self.update_btn.configure(state="normal")
+            return
+        self.stop_all()
+        self.root.destroy()
 
     def _update_failed(self, error) -> None:
         self.update_btn.configure(state="normal")
@@ -824,7 +884,8 @@ class App(AccountMixin, ManagerMixin, PersistMixin, ListMixin, PlanMixin, ToolsM
                 "login-retry": self._login_retry, "updates": self._updates_done,
                 "compat": self._compat_done, "games": self._games_found, "found": self._apply_found,
                 "requirements": self._requirements_done, "finished": self._finished,
-                "app-update": self._app_update_found, "update-ready": self._update_ready, "update-failed": self._update_failed, "collection": self._collection_loaded,
+                "app-update": self._app_update_found, "update-ready": self._update_ready, "update-failed": self._update_failed,
+                "installer-ready": self._installer_ready, "collection": self._collection_loaded,
             }.get(kind)
             if handler is None:
                 log.warning("Unknown event %s", kind)

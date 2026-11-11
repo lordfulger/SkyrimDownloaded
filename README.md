@@ -31,12 +31,22 @@ Both need **Premium**. Nexus only gives tools download links for Premium account
 
 ## Setup (Windows)
 
-### Option A: the .exe (no Python needed)
-Download `SkyrimDownloaded.exe` from the [latest release](https://github.com/lordfulger/SkyrimDownloaded/releases/latest) and run it.
+### Option A: install it (recommended)
+Download `SkyrimDownloaded-Setup.exe` from the [latest release](https://github.com/lordfulger/SkyrimDownloaded/releases/latest) and run it.
+- It installs for your Windows user only (in `%LOCALAPPDATA%\Programs\SkyrimDownloaded`), so **no admin rights** are needed. To install for everyone on the PC, pick that when the installer asks.
+- You get a **Start menu** entry, and a desktop shortcut if you tick it.
+- It **starts faster** than the single .exe (nothing to unpack each time).
+- **Updates install themselves:** when there's a new version, the app downloads the new installer, closes, updates and opens again.
+- Uninstall it from **Windows Settings → Apps → Installed apps** like any other program. Your settings, lists and login (in `%APPDATA%\SkyrimDownloaded`) are kept.
+
+Already using the single .exe? **Help ▾ → Install on this PC** does it for you.
 
 Windows may say *"Windows protected your PC"* the first time. Click **More info**, then **Run anyway**: the app isn't code-signed yet (see [SIGNING.md](SIGNING.md)).
 
-### Option B: run from source
+### Option B: the single .exe (no install)
+Download `SkyrimDownloaded.exe` from the same page and run it from anywhere (a USB stick, your mod folder...). It updates itself too.
+
+### Option C: run from source
 1. Install Python 3.10 or newer from [python.org](https://www.python.org/downloads/windows/). The installer includes Tk, which the window needs.
 2. Download this repo (green **Code** button → *Download ZIP*) and unzip it.
 3. Double-click **`SkyrimDownloaded.bat`**.

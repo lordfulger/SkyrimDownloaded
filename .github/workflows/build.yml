@@ -61,9 +61,41 @@ jobs:
             $iconArgs = @("--icon", "assets/icon.ico", "--add-data", "assets/icon.png;assets",
                           "--add-data", "assets/icon.ico;assets")
           }
+          # The single .exe (runs from anywhere)...
           python -m PyInstaller --onefile --windowed --name SkyrimDownloaded @iconArgs run_skyrimdl.py
+          # ...and the folder build the installer packs (starts faster: nothing to unpack each time).
+          python -m PyInstaller --onedir --windowed --name SkyrimDownloaded @iconArgs `
+            --distpath dist/app --workpath build/app --specpath build/app-spec run_skyrimdl.py
       - name: Check it starts
         run: python -c "import skyrimdl.gui, skyrimdl.cli; print('ok')"
+
+      # --- The installer (Inno Setup) ---
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress | Out-Null
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          $version = python -c "import skyrimdl; print(skyrimdl.__version__)"
+          & $iscc /Qp "/DAppVersion=$version" installer\SkyrimDownloaded.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check the installer installs and uninstalls
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "sd install test"
+          $p = Start-Process dist\SkyrimDownloaded-Setup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CURRENTUSER","/DIR=`"$dir`"" -PassThru
+          if (-not $p.WaitForExit(300000)) { Write-Error "The installer didn't finish"; exit 1 }
+          if ($p.ExitCode -ne 0) { Write-Error "Installer exit code $($p.ExitCode)"; exit 1 }
+          foreach ($f in "SkyrimDownloaded.exe", "unins000.exe", "_internal") {
+            if (-not (Test-Path (Join-Path $dir $f))) { Write-Error "Missing after install: $f"; exit 1 }
+          }
+          Start-Process (Join-Path $dir "unins000.exe") -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" | Out-Null
+          # the uninstaller hands over to a copy of itself, so wait for the files to go
+          for ($i = 0; $i -lt 60 -and (Test-Path (Join-Path $dir "SkyrimDownloaded.exe")); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path (Join-Path $dir "SkyrimDownloaded.exe")) { Write-Error "Still there after uninstalling"; exit 1 }
+          Write-Host "Installs and uninstalls fine."
 
       # --- Code signing with SignPath (skipped until it's set up, see SIGNING.md) ---
       - name: Upload the unsigned .exe for signing
@@ -117,10 +149,27 @@ jobs:
           Write-Host "Signature: $($sig.Status) - $($sig.SignerCertificate.Subject)"
           if ($sig.Status -ne 'Valid') { Write-Error "The .exe isn't validly signed"; exit 1 }
 
+      - name: Sign the installer with Azure Trusted Signing
+        if: ${{ vars.AZURE_SIGNING_ACCOUNT != '' && vars.SIGNPATH_ORGANIZATION_ID == '' }}
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
+          files: ${{ github.workspace }}\dist\SkyrimDownloaded-Setup.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
       - uses: actions/upload-artifact@v4
         with:
           name: SkyrimDownloaded-windows
-          path: dist/SkyrimDownloaded.exe
+          path: |
+            dist/SkyrimDownloaded.exe
+            dist/SkyrimDownloaded-Setup.exe
 
   release:
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release)
@@ -149,7 +198,7 @@ jobs:
           fi
           signed="${{ vars.SIGNPATH_ORGANIZATION_ID != '' || vars.AZURE_SIGNING_ACCOUNT != '' }}"
           {
-            echo "**Download:** \`SkyrimDownloaded.exe\` below - no install or Python needed. Needs a Nexus Mods Premium account."
+            echo "**Download:** \`SkyrimDownloaded-Setup.exe\` below to install it (Start menu entry, updates install themselves, uninstall from Windows Settings; no admin rights needed), or \`SkyrimDownloaded.exe\` to run it without installing. Needs a Nexus Mods Premium account."
             echo
             if [ "$signed" != "true" ]; then
               echo "Windows may say *\"Windows protected your PC\"* the first time: click **More info**, then **Run anyway**. The app isn't code-signed yet."
@@ -157,6 +206,8 @@ jobs:
             fi
             echo "See the [README](https://github.com/${GITHUB_REPOSITORY}/blob/${tag}/README.md) for how to use it."
           } > notes.md
+          # The single .exe first: versions before 1.17 update from the first .exe of a release.
           gh release create "$tag" dist/SkyrimDownloaded.exe --target "$GITHUB_SHA" \
             --title "SkyrimDownloaded $tag" \
             --notes-file notes.md --generate-notes
+          gh release upload "$tag" dist/SkyrimDownloaded-Setup.exe

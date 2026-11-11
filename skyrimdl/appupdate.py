@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 from . import __version__
 
+PORTABLE_NAME = "SkyrimDownloaded.exe"         # the single .exe, runs from anywhere
+SETUP_NAME = "SkyrimDownloaded-Setup.exe"      # the installer
 LATEST_URL = "https://api.github.com/repos/lordfulger/SkyrimDownloaded/releases/latest"
 RELEASES_PAGE = "https://github.com/lordfulger/SkyrimDownloaded/releases/latest"
 
@@ -25,6 +27,9 @@ class NewVersion:
     exe_url: str = ""
     sha256: str = ""         # GitHub publishes each release file's checksum
     size: int | None = None
+    setup_url: str = ""      # the installer (SkyrimDownloaded-Setup.exe), for installed copies
+    setup_sha256: str = ""
+    setup_size: int | None = None
 
 
 def parse(version: str) -> tuple[int, ...]:
@@ -49,7 +54,8 @@ def _from_releases_page(current: str, timeout: float) -> NewVersion | None:
     if parse(tag) <= parse(current):
         return None
     base = RELEASES_PAGE.rsplit("/latest", 1)[0]
-    return NewVersion(tag.lstrip("v"), f"{base}/tag/{tag}", f"{base}/download/{tag}/SkyrimDownloaded.exe")
+    return NewVersion(tag.lstrip("v"), f"{base}/tag/{tag}", f"{base}/download/{tag}/{PORTABLE_NAME}",
+                      setup_url=f"{base}/download/{tag}/{SETUP_NAME}")
 
 
 def check(url: str = LATEST_URL, current: str = __version__, timeout: float = 10.0,
@@ -75,13 +81,15 @@ def check(url: str = LATEST_URL, current: str = __version__, timeout: float = 10
     tag = str(data.get("tag_name") or "")
     if not tag or data.get("draft") or data.get("prerelease") or parse(tag) <= parse(current):
         return None
-    asset = next((a for a in data.get("assets") or []
-                  if str(a.get("name", "")).lower().endswith(".exe")), {}) or {}
-    digest = str(asset.get("digest") or "")
+    assets = data.get("assets") or []
+    named = lambda name: next((a for a in assets if str(a.get("name", "")).lower() == name.lower()), None)
+    asset = named(PORTABLE_NAME) or next((a for a in assets if str(a.get("name", "")).lower().endswith(".exe")
+                                          and "setup" not in str(a.get("name", "")).lower()), {}) or {}
+    setup = named(SETUP_NAME) or {}
+    sha = lambda a: str(a.get("digest") or "").split(":", 1)[1] if str(a.get("digest") or "").startswith("sha256:") else ""
     return NewVersion(tag.lstrip("v"), data.get("html_url") or RELEASES_PAGE,
-                      asset.get("browser_download_url") or "",
-                      digest.split(":", 1)[1] if digest.startswith("sha256:") else "",
-                      asset.get("size"))
+                      asset.get("browser_download_url") or "", sha(asset), asset.get("size"),
+                      setup.get("browser_download_url") or "", sha(setup), setup.get("size"))
 
 
 # -- updating the .exe in place ------------------------------------------------------
@@ -104,6 +112,86 @@ def clean_env() -> dict:
 def running_exe() -> Path | None:
     """The .exe this is running from (None when running from source)."""
     return Path(sys.executable) if getattr(sys, "frozen", False) else None
+
+
+def is_installed() -> bool:
+    """Running from an installed copy (the installer puts its uninstaller next to the exe)?"""
+    exe = running_exe()
+    return bool(exe and (exe.parent / "unins000.exe").is_file())
+
+
+def cache_folder() -> Path:
+    from .nexuscache import cache_dir
+    folder = cache_dir() / "updates"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def setup_url_for(version: str) -> str:
+    """Where this version's installer is on GitHub."""
+    base = RELEASES_PAGE.rsplit("/latest", 1)[0]
+    return f"{base}/download/v{version}/{SETUP_NAME}"
+
+
+def download_setup(found: NewVersion, folder: Path, progress=None, cancel=None) -> Path:
+    """Download the installer and check it (checksum when GitHub gives one)."""
+    from .downloader import download
+    safe = "".join(c for c in str(found.version) if c.isalnum() or c in ".-") or "new"
+    dest = folder / f"SkyrimDownloaded-Setup-{safe}.exe"
+    partial = folder / ".skyrimdl-partial"
+    try:
+        path = download([found.setup_url], dest, partial_dir=partial, expected_size=found.setup_size,
+                        progress=progress, cancel=cancel)
+    finally:
+        try:
+            partial.rmdir()
+        except OSError:
+            pass
+    data = path.read_bytes()
+    if found.setup_sha256 and hashlib.sha256(data).hexdigest().lower() != found.setup_sha256.lower():
+        path.unlink()
+        raise ValueError("The downloaded installer didn't match its checksum, so it wasn't used. Try again.")
+    if not data.startswith(b"MZ") or len(data) < 1_000_000:
+        path.unlink()
+        raise ValueError("The download wasn't a complete installer, so it wasn't used.")
+    return path
+
+
+INSTALL_SCRIPT = r"""@echo off
+rem SkyrimDownloaded updater: wait for the app to close, then run the new installer.
+set "SETUP=%~1"
+set "PID=%~2"
+set "APP=%~4"
+set /a TRIES=0
+:wait
+tasklist /FI "PID eq %PID%" 2>nul | find "%PID%" >nul
+if errorlevel 1 goto run
+set /a TRIES+=1
+if %TRIES% GEQ 60 goto run
+ping -n 2 127.0.0.1 >nul
+goto wait
+:run
+if "%~3"=="silent" (
+  "%SETUP%" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL
+  if not "%APP%"=="" start "" "%APP%"
+) else (
+  "%SETUP%"
+)
+del "%SETUP%" >nul 2>&1
+del "%~f0" >nul 2>&1
+"""
+
+
+def start_install(setup: Path, pid: int, *, silent: bool = True):
+    """Run the installer once this app has closed. Silent for updates (the installer
+    reopens the app when it's done); with its windows for a first install."""
+    script = Path(tempfile.gettempdir()) / f"skyrimdl-install-{pid}.cmd"
+    script.write_text(INSTALL_SCRIPT.replace("\n", "\r\n"), encoding="ascii")
+    flags = 0x08000000 | 0x00000200  # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+    app = running_exe() if silent else None  # reopened once the silent update is done
+    inner = f'"{script}" "{setup}" {int(pid)} ' + ("silent" if silent else "manual") + (f' "{app}"' if app else "")
+    return subprocess.Popen(f'cmd.exe /d /s /c "{inner}"', close_fds=True, env=clean_env(),
+                            creationflags=flags if sys.platform == "win32" else 0)
 
 
 def can_write(folder: Path) -> bool:

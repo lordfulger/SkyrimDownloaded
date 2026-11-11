@@ -17,6 +17,16 @@ class AppUpdateTests(unittest.TestCase):
             self.assertIsNone(appupdate.check(url, current="1.6.1"))
             self.assertIsNone(appupdate.check(url, current="1.10.0"))   # compares numbers, not text
 
+    def test_portable_and_installer_files(self):
+        with FakeNexus() as fake:
+            url = fake.base.replace("/v1", "") + "/repos/x/y/releases/latest"
+            found = appupdate.check(url, current="1.0.0")
+        self.assertTrue(found.exe_url.endswith("v9.9.9.exe"))          # the single .exe, not the installer
+        self.assertEqual((found.sha256, found.size), ("ab" * 32, 1234))
+        self.assertTrue(found.setup_url.endswith("-setup.exe"))
+        self.assertEqual((found.setup_sha256, found.setup_size), ("cd" * 32, 5678))
+        self.assertFalse(appupdate.is_installed())                     # running from source
+
     def test_download_checks_the_checksum(self):
         import hashlib
         import tempfile
@@ -95,6 +105,33 @@ class WindowsSwapTests(unittest.TestCase):
         self.assertGreater(time.monotonic() - started, 2.5)   # it waited for the app to close
         self.assertEqual(old.read_text(), "new version")
         self.assertFalse(new.exists())
+
+
+    def test_install_runs_the_installer_after_the_app_closes(self):
+        import subprocess
+        import sys
+        import tempfile
+        import time
+        from pathlib import Path
+        from unittest import mock
+        folder = Path(tempfile.mkdtemp(prefix="with space "))
+        marker = folder / "ran.txt"
+        setup = folder / "fake setup.cmd"  # stands in for SkyrimDownloaded-Setup.exe
+        setup.write_text(f'@echo %* > "{marker}"\r\n', encoding="ascii")
+        app_exe = folder / "reopened.cmd"   # stands in for the installed app
+        reopened = folder / "reopened.txt"
+        app_exe.write_text(f'@echo yes > "{reopened}"\r\n', encoding="ascii")
+        app = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3)"])
+        with mock.patch.object(appupdate, "running_exe", return_value=app_exe):
+            proc = appupdate.start_install(setup, app.pid, silent=True)
+        proc.wait(timeout=60)
+        app.wait()
+        for _ in range(20):
+            if reopened.exists():
+                break
+            time.sleep(0.5)
+        self.assertIn("/VERYSILENT", marker.read_text())
+        self.assertTrue(reopened.exists())
 
 
 if __name__ == "__main__":

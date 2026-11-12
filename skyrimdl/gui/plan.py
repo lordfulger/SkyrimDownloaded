@@ -547,7 +547,7 @@ class PlanMixin:
                            title="Review linked mods" if review else "Choose options", start=start,
                            requirement_rows=self.requirement_rows,
                            add_requirement=self.add_requirement_to_list,
-                           texture=self._target_game().texture)
+                           texture=self._target_game().texture, settings=self.settings)
         dlg.wait_window()
         if report:  # suggested patches unticked in the window stay unticked
             declined = self.__dict__.setdefault("patch_declined", set())

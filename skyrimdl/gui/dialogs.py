@@ -14,7 +14,7 @@ class ChoiceDialog(tk.Toplevel):
     def __init__(self, master, plans: list[ModPlan], include_old: bool, include_other: bool = False, *,
                  suggestions: dict | None = None, warnings: dict | None = None,
                  title: str = "Choose options", start: int = 0,
-                 requirement_rows=None, add_requirement=None, texture: str = ""):
+                 requirement_rows=None, add_requirement=None, texture: str = "", settings=None):
         super().__init__(master)
         self.texture = texture
         self.plans = list(plans)
@@ -31,7 +31,9 @@ class ChoiceDialog(tk.Toplevel):
         self.resumed = start > 0
         self.vars: list[tuple[tk.BooleanVar, int]] = []
         self.title(title)
-        self.geometry("800x600")
+        self.settings = settings
+        self.show_page = bool(getattr(settings, "choice_page", True))
+        self.geometry("1280x820" if self.show_page else "800x600")
         self.minsize(560, 380)
         self.transient(master)
         self.grab_set()
@@ -64,9 +66,15 @@ class ChoiceDialog(tk.Toplevel):
         self._photos: list = []
         self._pic_token = object()
 
-        body = ttk.Frame(self)
-        self._body = body
-        body.pack(fill="both", expand=True, padx=12, pady=8)
+        # The files on the left, the mod's Nexus page on the right (drag the divider to resize).
+        self._body = ttk.PanedWindow(self, orient="horizontal")
+        self._body.pack(fill="both", expand=True, padx=12, pady=8)
+        body = ttk.Frame(self._body)
+        self._body.add(body, weight=3)
+        self.page = ttk.Frame(self._body)
+        self._build_page(self.page)
+        if self.show_page:
+            self._body.add(self.page, weight=2)
         self.canvas = tk.Canvas(body, highlightthickness=0, yscrollincrement=18)
         sb = ttk.Scrollbar(body, orient="vertical", command=self.canvas.yview)
         self.inner = ttk.Frame(self.canvas)
@@ -83,6 +91,8 @@ class ChoiceDialog(tk.Toplevel):
         btns.pack(fill="x", padx=12, pady=(0, 4))
         ttk.Button(btns, text="\u25C0 Back", command=lambda: self.go(-1)).pack(side="left")
         ttk.Button(btns, text="Open mod page", command=self.open_page).pack(side="left", padx=6)
+        self.page_btn = ttk.Button(btns, text=self._page_label(), command=self.toggle_page)
+        self.page_btn.pack(side="left", padx=(0, 6))
         ttk.Button(btns, text="Pictures", command=self.open_pictures).pack(side="left")
         self.count = tk.StringVar()
         ttk.Label(btns, textvariable=self.count).pack(side="left", padx=8)
@@ -128,6 +138,7 @@ class ChoiceDialog(tk.Toplevel):
             sub = "You skipped this one earlier - choose now, or Done to leave it for later."
         self.sub.set(sub + (f"   \u2022   your note: {plan.entry.note}" if plan.entry.note else ""))
         self._show_warnings(self.warnings.get(id(plan), []))
+        self._render_page(plan)
         skipped = f"   \u2022   {len(self.later)} skipped for later" if self.later else ""
         self.count.set(f"Mod {self.index + 1} of {len(self.plans)}{skipped}")
         self.vars = []
@@ -195,6 +206,126 @@ class ChoiceDialog(tk.Toplevel):
             self.master._theme.paint(self)
         if self.find_bar.winfo_ismapped() and self.find_var.get().strip():
             self.after_idle(lambda: self.find_file(0))
+
+    # -- the mod's Nexus page, on the right ------------------------------------
+
+    def _page_label(self) -> str:
+        return "Hide mod page \u25b8" if self.show_page else "\u25c2 Show mod page"
+
+    def toggle_page(self) -> None:
+        self.show_page = not self.show_page
+        if self.show_page:
+            self._body.add(self.page, weight=2)
+            if self.winfo_width() < 1000:
+                self.geometry(f"1280x{max(self.winfo_height(), 700)}")
+            self._render_page(self.plan)
+        else:
+            self._body.forget(self.page)
+        self.page_btn.configure(text=self._page_label())
+        if self.settings is not None:
+            self.settings.choice_page = self.show_page
+
+    def _build_page(self, frame) -> None:
+        self.page_picture = ttk.Label(frame)
+        self.page_picture.pack(anchor="n", pady=(0, 6))
+        box = ttk.Frame(frame)
+        box.pack(fill="both", expand=True)
+        t = tk.Text(box, wrap="word", state="disabled", relief="flat", highlightthickness=1, padx=10, pady=8,
+                    font="TkDefaultFont", width=48)
+        t._details = True
+        sb = ttk.Scrollbar(box, orient="vertical", command=t.yview)
+        t.configure(yscrollcommand=sb.set)
+        t.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        AutoScroll(t)
+        self.page_text = t
+        self._page_photo = None
+        self._page_token = object()
+
+    def _render_page(self, plan) -> None:
+        if not self.show_page:
+            return
+        t = self.page_text
+        theme = getattr(self.master, "_theme", None)
+        c = theme.colors if theme else {"muted": "#555", "accent": "#2a6ad8", "error": "#b00020"}
+        t.configure(state="normal")
+        t.delete("1.0", "end")
+        for tag in t.tag_names():
+            if tag.startswith("plink"):
+                t.tag_delete(tag)
+        t.tag_configure("title", font=("TkDefaultFont", 13, "bold"), spacing3=2)
+        t.tag_configure("h", font=("TkDefaultFont", 10, "bold"), spacing1=10, spacing3=2)
+        t.tag_configure("meta", foreground=c["muted"])
+        n = [0]
+
+        def put(text, *tags):
+            t.insert("end", text, tags)
+
+        def link(text, url):
+            n[0] += 1
+            tag = f"plink{n[0]}"
+            t.tag_configure(tag, foreground=c["accent"], underline=True)
+            t.tag_bind(tag, "<Button-1>", lambda e, u=url: webbrowser.open(u))
+            t.tag_bind(tag, "<Enter>", lambda e: t.configure(cursor="hand2"))
+            t.tag_bind(tag, "<Leave>", lambda e: t.configure(cursor=""))
+            t.insert("end", text, (tag,))
+
+        mod = plan.mod
+        raw = (mod.raw or {}) if mod else {}
+        put((mod.name if mod else plan.title) + "\n", "title")
+        if mod:
+            meta = [f"by {mod.author}"] if mod.author else []
+            if mod.version:
+                meta.append(f"version {mod.version}")
+            if raw.get("updated_timestamp"):
+                meta.append("updated " + time.strftime("%d %b %Y", time.localtime(int(raw["updated_timestamp"]))))
+            if meta:
+                put(" \u00b7 ".join(meta) + "\n", "meta")
+            counts = []
+            if raw.get("endorsement_count") is not None:
+                counts.append(f"{int(raw['endorsement_count']):,} endorsements")
+            if raw.get("mod_downloads") is not None:
+                counts.append(f"{int(raw['mod_downloads']):,} downloads")
+            if counts:
+                put(" \u00b7 ".join(counts) + "\n", "meta")
+        link("Open on Nexus \u2197", plan.entry.page_url)
+        put("   ")
+        link("Files tab \u2197", plan.entry.page_url + "?tab=files")
+        put("   ")
+        link("Pictures \u2197", plan.entry.page_url + "?tab=images")
+        put("\n")
+        if mod and mod.summary:
+            put("\nSummary\n", "h")
+            put(bbcode_to_text(mod.summary) + "\n")
+        desc = bbcode_to_text(str(raw.get("description") or ""))
+        if desc:
+            put("\nDescription\n", "h")
+            put(desc + "\n")
+        elif not mod:
+            put("\nNot looked up yet.\n", "meta")
+        t.configure(state="disabled")
+        t.yview_moveto(0)
+        # the mod's main picture, loaded in the background
+        self.page_picture.configure(image="", text="")
+        self._page_photo = None
+        url = mod.picture_url if mod else ""
+        if url:
+            token = self._page_token = object()
+            box: dict = {}
+            threading.Thread(target=lambda: box.setdefault("data", pictures.fetch(url)), daemon=True).start()
+
+            def check():
+                if token is not self._page_token or not self.page_picture.winfo_exists():
+                    return
+                if "data" not in box:
+                    self.after(200, check)
+                    return
+                width = max(240, self.page.winfo_width() - 24)
+                photo = pictures.to_photo(box["data"], width, 200)
+                if photo is not None:
+                    self._page_photo = photo
+                    self.page_picture.configure(image=photo)
+            self.after(100, check)
 
     # -- pictures --------------------------------------------------------------
 

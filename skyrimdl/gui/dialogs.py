@@ -5,6 +5,12 @@ from __future__ import annotations
 from .common import *  # noqa: F401,F403
 
 
+def _mod_id(url: str):
+    import re as _re
+    m = _re.search(r"/mods/(\d+)", url or "")
+    return int(m.group(1)) if m else None
+
+
 class ChoiceDialog(tk.Toplevel):
     """One mod at a time: tick the files you want. Back / Skip for now / Leave out / Next.
 
@@ -33,9 +39,9 @@ class ChoiceDialog(tk.Toplevel):
         self.title(title)
         self.settings = settings
         self.show_page = bool(getattr(settings, "choice_page", True))
-        self.geometry("1280x820" if self.show_page else "800x600")
+        remember_size(self, "choice", "1280x820" if self.show_page else "800x600")
         self.minsize(560, 380)
-        self.transient(master)
+        pass  # a normal window: it can be resized and maximized
         self.grab_set()
 
         self.head = tk.StringVar()
@@ -137,7 +143,13 @@ class ChoiceDialog(tk.Toplevel):
         if plan in self.later:
             sub = "You skipped this one earlier - choose now, or Done to leave it for later."
         self.sub.set(sub + (f"   \u2022   your note: {plan.entry.note}" if plan.entry.note else ""))
-        self._show_warnings(self.warnings.get(id(plan), []))
+        self._rows = self.requirement_rows(plan)
+        shown = {r["name"].lower() for r in self._rows} | {m for r in self._rows for m in [_mod_id(r["url"])] if m}
+        warns = [w for w in self.warnings.get(id(plan), [])
+                 if not (getattr(w, "before", "") == "requires"
+                         and (w.name.lower() in shown
+                              or (getattr(w, "other", None) is not None and w.other.entry.mod_id in shown)))]
+        self._show_warnings(warns)
         self._render_page(plan)
         skipped = f"   \u2022   {len(self.later)} skipped for later" if self.later else ""
         self.count.set(f"Mod {self.index + 1} of {len(self.plans)}{skipped}")
@@ -216,7 +228,7 @@ class ChoiceDialog(tk.Toplevel):
         self.show_page = not self.show_page
         if self.show_page:
             self._body.add(self.page, weight=2)
-            if self.winfo_width() < 1000:
+            if self.winfo_width() < 1000 and self.state() != "zoomed":
                 self.geometry(f"1280x{max(self.winfo_height(), 700)}")
             self._render_page(self.plan)
         else:
@@ -409,10 +421,13 @@ class ChoiceDialog(tk.Toplevel):
                 link_label(line, w.name, w.url).pack(side="left", padx=(4, 0))
             else:
                 ttk.Label(line, text=w.name, style="Warn.TLabel").pack(side="left", padx=(4, 0))
-            if before == "needs" and w.url:
+            if before == "requires" and w.url:
                 self._needed_mod_status(line, w)
             elif w.after:
                 ttk.Label(line, text=w.after, style="Warn.TLabel").pack(side="left")
+            if getattr(w, "quote", ""):
+                ttk.Label(self.warn_box, text=f"      \u201c{w.quote[:180]}\u201d", style="Muted.TLabel",
+                          wraplength=740).pack(anchor="w")
 
     def _needed_mod_status(self, line, w) -> None:
         """After "needs X": whether X will be downloaded, with a button to fix it if not."""
@@ -445,49 +460,61 @@ class ChoiceDialog(tk.Toplevel):
         """Get a needed mod after all: its main file, or what you pick when you get to it."""
         main = primary_file(other.options)
         other.selected = [main.file_id] if main else []
-        other.reason = f"included - {self.plan.title} needs it"
+        other.reason = f"included - {self.plan.title} requires it"
         other.chosen_by_user = True
         if other in self.later:
             self.later.remove(other)
         return "Included \u2713"
 
     def _show_needs(self, plan) -> None:
-        """What this mod needs, with a link to each mod and Add to list for missing ones."""
-        rows = self.requirement_rows(plan)
+        """What this mod requires (and what it only has optional files for), from its Nexus
+        requirements: a link to each mod, Add to list for ones not in your list."""
+        rows = getattr(self, "_rows", None)
+        if rows is None:
+            rows = self.requirement_rows(plan)
         if not rows:
             return
-        ttk.Label(self.inner, text="Needs", font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(4, 2))
-        for r in rows:
-            line = ttk.Frame(self.inner)
-            line.pack(anchor="w", fill="x", padx=(8, 0), pady=1)
-            if r["status"] == "listed":
-                ttk.Label(line, text="\u2713", style="Good.TLabel").pack(side="left")
-                link_label(line, r["name"], r["url"]).pack(side="left", padx=4)
-                ttk.Label(line, text="in your list", style="Muted.TLabel").pack(side="left")
-            elif r["status"] == "missing":
-                ttk.Label(line, text="\u2717", style="Warn.TLabel").pack(side="left")
-                link_label(line, r["name"], r["url"]).pack(side="left", padx=4)
-                ttk.Label(line, text="not in your list", style="Warn.TLabel").pack(side="left")
-                if self.add_requirement:
-                    btn = ttk.Button(line, text="Add to list")
+        required = [r for r in rows if not r.get("optional")]
+        optional = [r for r in rows if r.get("optional")]
+        for title, group in (("Requires", required), ("Optional - files for these, if you use them", optional)):
+            if not group:
+                continue
+            ttk.Label(self.inner, text=title, font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(4, 2))
+            for r in group:
+                self._requirement_line(plan, r, optional=group is optional)
 
-                    def add(b=btn, row=r):
-                        added = self.add_requirement(row["url"], plan.title)
-                        b.configure(text="Added \u2713" if added else "Already in your list", state="disabled")
-                    btn.configure(command=add)
-                    btn.pack(side="left", padx=8)
-            elif r["status"] == "dlc":
-                ttk.Label(line, text="\u25c6").pack(side="left")
-                ttk.Label(line, text=f"{r['name']} (DLC / Creation - make sure you have it)").pack(side="left", padx=4)
+    def _requirement_line(self, plan, r, optional: bool) -> None:
+        line = ttk.Frame(self.inner)
+        line.pack(anchor="w", fill="x", padx=(8, 0), pady=1)
+        if r["status"] == "listed":
+            ttk.Label(line, text="\u2713", style="Good.TLabel").pack(side="left")
+            link_label(line, r["name"], r["url"]).pack(side="left", padx=4)
+            ttk.Label(line, text="in your list", style="Muted.TLabel").pack(side="left")
+        elif r["status"] == "missing":
+            ttk.Label(line, text="\u25cb" if optional else "\u2717",
+                      style="Muted.TLabel" if optional else "Warn.TLabel").pack(side="left")
+            link_label(line, r["name"], r["url"]).pack(side="left", padx=4)
+            ttk.Label(line, text="not in your list", style="Muted.TLabel" if optional else "Warn.TLabel").pack(side="left")
+            if self.add_requirement:
+                btn = ttk.Button(line, text="Add to list")
+
+                def add(b=btn, row=r):
+                    added = self.add_requirement(row["url"], plan.title)
+                    b.configure(text="Added \u2713" if added else "Already in your list", state="disabled")
+                btn.configure(command=add)
+                btn.pack(side="left", padx=8)
+        elif r["status"] == "dlc":
+            ttk.Label(line, text="\u25c6").pack(side="left")
+            ttk.Label(line, text=f"{r['name']} (DLC / Creation - make sure you have it)").pack(side="left", padx=4)
+        else:
+            ttk.Label(line, text="\u2192").pack(side="left")
+            if r["url"]:
+                link_label(line, r["name"], r["url"]).pack(side="left", padx=4)
             else:
-                ttk.Label(line, text="\u2192").pack(side="left")
-                if r["url"]:
-                    link_label(line, r["name"], r["url"]).pack(side="left", padx=4)
-                else:
-                    ttk.Label(line, text=r["name"]).pack(side="left", padx=4)
-                ttk.Label(line, text="not on Nexus - get it yourself", style="Muted.TLabel").pack(side="left")
-            if r.get("notes"):
-                ttk.Label(self.inner, text=r["notes"], style="Muted.TLabel", wraplength=680).pack(anchor="w", padx=34)
+                ttk.Label(line, text=r["name"]).pack(side="left", padx=4)
+            ttk.Label(line, text="not on Nexus - get it yourself", style="Muted.TLabel").pack(side="left")
+        if r.get("notes"):
+            ttk.Label(self.inner, text=r["notes"], style="Muted.TLabel", wraplength=680).pack(anchor="w", padx=34)
 
     def _ticked(self) -> list[int]:
         return [fid for var, fid in self.vars if var.get()]
@@ -640,20 +667,20 @@ class ChoiceDialog(tk.Toplevel):
 
 
 class RequirementsDialog(tk.Toplevel):
-    """Mods your list needs but doesn't have: a link to each, tick the ones to add."""
+    """Mods your list requires but doesn't have: a link to each, tick the ones to add."""
 
     def __init__(self, master, missing: list):
         super().__init__(master)
         self.chosen: list = []
         self.title("Missing requirements")
-        self.geometry("820x500")
-        self.transient(master)
+        remember_size(self, "requirements", "820x500")
+        pass  # a normal window: it can be resized and maximized
         self.grab_set()
         addable = [m for m in missing if not m.requirement.external and not m.requirement.dlc]
         outside = [m for m in missing if m.requirement.external and not m.requirement.dlc]
         dlc = [m for m in missing if m.requirement.dlc]
-        head = (f"{len(addable)} mod(s) your list needs but doesn't have" if addable
-                else "Your mods need these too")
+        head = (f"{len(addable)} mod(s) your mods require but your list doesn't have" if addable
+                else "Your mods require these too")
         ttk.Label(self, text=head, style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
         ttk.Label(self, text="Click a name to open its Nexus page. Ticked mods are added to your list and "
                              "looked up.", style="Muted.TLabel").pack(anchor="w", padx=12)
@@ -685,14 +712,16 @@ class RequirementsDialog(tk.Toplevel):
                 link_label(line, m.requirement.name, m.link).pack(side="left", padx=4)
             else:
                 ttk.Label(line, text=m.requirement.name).pack(side="left", padx=4)
-            ttk.Label(line, text=f"needed by {', '.join(m.needed_by)[:90]}", style="Muted.TLabel").pack(side="left")
+            optional = compat.optional_note(m.requirement.notes)
+            ttk.Label(line, text=("optional for " if optional else "required by ") + ", ".join(m.needed_by)[:90],
+                      style="Muted.TLabel").pack(side="left")
             if m.requirement.notes:
                 ttk.Label(inner, text=m.requirement.notes, style="Muted.TLabel", wraplength=740).pack(anchor="w", padx=30)
 
         if addable:
-            section("On Nexus - tick to add to your list")
+            section("On Nexus - tick to add to your list (optional ones aren't ticked)")
             for m in addable:
-                row(m, True)
+                row(m, not compat.optional_note(m.requirement.notes))
         if outside:
             section("Not on Nexus - get these yourself")
             for m in outside:
@@ -724,8 +753,8 @@ class UpdatesDialog(tk.Toplevel):
         super().__init__(master)
         self.chosen: list = []
         self.title("Updates")
-        self.geometry("820x480")
-        self.transient(master)
+        remember_size(self, "updates", "820x480")
+        pass  # a normal window: it can be resized and maximized
         self.grab_set()
         newer = sum(1 for u in found if u.new is not None)
         gone = len(found) - newer
@@ -771,58 +800,75 @@ class UpdatesDialog(tk.Toplevel):
 
 
 class CompatDialog(tk.Toplevel):
-    """What the compatibility check found, with a button to go over those mods again."""
+    """What the compatibility check found, one tab per kind, with a filter and a button to go
+    over those mods again."""
+
+    KINDS = (compat.CONFLICT, compat.PATCH, compat.NEEDS, compat.DLC, compat.WORKS_WITH, compat.MENTIONS)
+    TAB_NAMES = {compat.CONFLICT: "Possible conflicts", compat.PATCH: "Patches", compat.NEEDS: "Requires",
+                 compat.DLC: "DLC / Creations", compat.WORKS_WITH: "Works with / optional",
+                 compat.MENTIONS: "Mentions"}
+    ABOUT = {
+        compat.CONFLICT: "A mod's Nexus page says it doesn't work with another mod in your list. Read the quote: "
+                         "page text is read automatically, so these are things to check, not certainties.",
+        compat.PATCH: "Files on a mod's Files tab that are made for another mod in your list.",
+        compat.NEEDS: "Mods that require another mod in your list (from Nexus's requirements, or their page).",
+        compat.DLC: "Official DLC or Creation Club content a mod needs - make sure you have it.",
+        compat.WORKS_WITH: "Mods whose page says they work with another mod in your list, or that have optional "
+                           "files for it.",
+        compat.MENTIONS: "Mod pages that mention another mod in your list, without saying how.",
+    }
+    MAX_LINES = 1500  # per tab at once (the filter narrows it)
 
     def __init__(self, master, report: "compat.Report"):
         super().__init__(master)
         self.choice = "close"
+        self.report = report
         self.title("Compatibility")
-        self.geometry("820x560")
-        self.transient(master)
+        remember_size(self, "compat", "980x680")
         self.grab_set()
-        n = len(report.findings)
         review = report.plans_to_review()
-        ttk.Label(self, text=f"{n} link(s) found between the mods in your list",
+        ttk.Label(self, text=f"{len(report.findings)} link(s) found between the mods in your list",
                   style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
-        ttk.Label(self, text="From each mod's requirements, its files and its Nexus page. Page text is read "
-                             "automatically, so treat \"possible\" items as things to check.",
-                  style="Muted.TLabel", wraplength=780).pack(anchor="w", padx=12)
-        body = ttk.Frame(self)
-        body.pack(fill="both", expand=True, padx=12, pady=8)
-        text = tk.Text(body, wrap="word", relief="flat", highlightthickness=1, padx=10, pady=8,
-                       font="TkDefaultFont")
-        text._details = True
-        sb = ttk.Scrollbar(body, orient="vertical", command=text.yview)
-        text.configure(yscrollcommand=sb.set)
-        text.pack(side="left", fill="both", expand=True)
-        sb.pack(side="right", fill="y")
-        AutoScroll(text)
+        bar = ttk.Frame(self)
+        bar.pack(fill="x", padx=12, pady=(6, 0))
+        ttk.Label(bar, text="Show only mods matching:").pack(side="left")
+        self.filter_var = tk.StringVar()
+        entry = ttk.Entry(bar, textvariable=self.filter_var, width=32)
+        entry.pack(side="left", padx=6)
+        ttk.Button(bar, text="\u2715", width=3, command=lambda: self.filter_var.set("")).pack(side="left")
+        self.filter_var.trace_add("write", lambda *a: self._refilter())
+        self.tabs = ttk.Notebook(self)
+        self.tabs.pack(fill="both", expand=True, padx=12, pady=8)
         theme = getattr(master, "_theme", None)
-        c = theme.colors if theme else {"muted": "#555", "error": "#b00020", "done": "#1b7a1b"}
-        text.tag_configure("h", font=("TkDefaultFont", 11, "bold"), spacing1=10, spacing3=4)
-        text.tag_configure("meta", foreground=c["muted"])
-        text.tag_configure("warn", foreground=c["error"])
-        text.tag_configure("good", foreground=c["done"])
-        icons = {compat.CONFLICT: ("\u26a0 ", "warn"), compat.PATCH: ("\u2605 ", "good"),
-                 compat.NEEDS: ("\u2192 ", ""), compat.DLC: ("\u25c6 ", ""), compat.WORKS_WITH: ("\u2713 ", "good"),
-                 compat.MENTIONS: ("\u2022 ", "meta")}
-        for kind in (compat.CONFLICT, compat.PATCH, compat.NEEDS, compat.DLC, compat.WORKS_WITH, compat.MENTIONS):
-            items = report.by_kind(kind)
-            if not items:
-                continue
-            text.insert("end", f"{compat.HEADINGS[kind]} ({len(items)})\n", "h")
-            icon, tag = icons[kind]
-            for f in items:
-                text.insert("end", icon + f.text, tag)
-                if kind == compat.PATCH:
-                    ticked = f.file_id in f.plan.selected
-                    text.insert("end", "  (ticked)" if ticked else "  (not ticked yet)", "meta")
-                text.insert("end", "\n")
-                if f.evidence and kind not in (compat.NEEDS, compat.DLC):
-                    text.insert("end", f"      \u201c{f.evidence[:160]}\u201d\n", "meta")
+        self.c = theme.colors if theme else {"muted": "#555", "error": "#b00020", "done": "#1b7a1b", "accent": "#2a6ad8"}
+        self.texts: dict = {}
+        self.rendered: dict = {}
+        for kind in self.KINDS:
+            frame = ttk.Frame(self.tabs)
+            self.tabs.add(frame, text=f"{self.TAB_NAMES[kind]} ({len(report.by_kind(kind))})")
+            ttk.Label(frame, text=self.ABOUT[kind], style="Muted.TLabel", wraplength=900).pack(anchor="w", pady=(6, 4))
+            box = ttk.Frame(frame)
+            box.pack(fill="both", expand=True)
+            text = tk.Text(box, wrap="word", relief="flat", highlightthickness=1, padx=10, pady=8,
+                           font="TkDefaultFont", state="disabled")
+            text._details = True
+            sb = ttk.Scrollbar(box, orient="vertical", command=text.yview)
+            text.configure(yscrollcommand=sb.set)
+            text.pack(side="left", fill="both", expand=True)
+            sb.pack(side="right", fill="y")
+            AutoScroll(text)
+            text.tag_configure("meta", foreground=self.c["muted"])
+            text.tag_configure("warn", foreground=self.c["error"])
+            text.tag_configure("good", foreground=self.c["done"])
+            text.tag_configure("mod", font=("TkDefaultFont", 10, "bold"), spacing1=8)
+            self.texts[kind] = text
         if not report.requirements_checked:
-            text.insert("end", "\n(Couldn't ask Nexus for requirements this time.)\n", "meta")
-        text.configure(state="disabled")
+            ttk.Label(self, text="(Couldn't ask Nexus for requirements this time.)", style="Muted.TLabel").pack(
+                anchor="w", padx=12)
+        # Open on the first tab that has something.
+        first = next((i for i, k in enumerate(self.KINDS) if report.by_kind(k)), 0)
+        self.tabs.select(first)
+        self.tabs.bind("<<NotebookTabChanged>>", lambda e: self._render_current())
 
         btns = ttk.Frame(self)
         btns.pack(fill="x", padx=12, pady=(0, 12))
@@ -834,11 +880,78 @@ class CompatDialog(tk.Toplevel):
                       style="Muted.TLabel").pack(side="left")
         if theme:
             theme.paint(self)
+        self._render_current()
+
+    def _current_kind(self):
+        try:
+            return self.KINDS[self.tabs.index(self.tabs.select())]
+        except (tk.TclError, IndexError):
+            return self.KINDS[0]
+
+    def _refilter(self) -> None:
+        self.rendered.clear()
+        self._render_current()
+        query = self.filter_var.get().strip().lower()
+        for i, kind in enumerate(self.KINDS):
+            n = sum(1 for f in self.report.by_kind(kind) if self._matches(f, query))
+            self.tabs.tab(i, text=f"{self.TAB_NAMES[kind]} ({n})")
+
+    def _matches(self, f, query: str) -> bool:
+        return not query or all(w in (f.plan.title + " " + f.other.title).lower() for w in query.split())
+
+    def _render_current(self) -> None:
+        kind = self._current_kind()
+        query = self.filter_var.get().strip().lower()
+        if self.rendered.get(kind) == query:
+            return
+        self.rendered[kind] = query
+        t = self.texts[kind]
+        t.configure(state="normal")
+        t.delete("1.0", "end")
+        for tag in t.tag_names():
+            if tag.startswith("clink"):
+                t.tag_delete(tag)
+        items = [f for f in self.report.by_kind(kind) if self._matches(f, query)]
+        icon, tag = {compat.CONFLICT: ("\u26a0 ", "warn"), compat.PATCH: ("\u2605 ", "good"),
+                     compat.NEEDS: ("\u2192 ", ""), compat.DLC: ("\u25c6 ", ""),
+                     compat.WORKS_WITH: ("\u2713 ", "good"), compat.MENTIONS: ("\u2022 ", "meta")}[kind]
+        n = [0]
+
+        def link(text, url):
+            n[0] += 1
+            name = f"clink{n[0]}"
+            t.tag_configure(name, foreground=self.c.get("accent", "#2a6ad8"), underline=True)
+            t.tag_bind(name, "<Button-1>", lambda e, u=url: webbrowser.open(u))
+            t.tag_bind(name, "<Enter>", lambda e: t.configure(cursor="hand2"))
+            t.tag_bind(name, "<Leave>", lambda e: t.configure(cursor=""))
+            t.insert("end", text, (name,))
+
+        last = None
+        for f in items[: self.MAX_LINES]:
+            if f.plan is not last:  # grouped by mod
+                last = f.plan
+                link(f.plan.title, f.plan.entry.page_url)
+                t.insert("end", "\n", "mod")
+            t.insert("end", "   " + icon + f.text, tag)
+            if kind == compat.PATCH:
+                t.insert("end", "  (ticked)" if f.file_id in f.plan.selected else "  (not ticked yet)", "meta")
+            if f.other is not f.plan:
+                t.insert("end", "   ")
+                link("open \u2197", f.other.entry.page_url)
+            t.insert("end", "\n")
+            if f.evidence and kind not in (compat.NEEDS, compat.DLC):
+                t.insert("end", f"        \u201c{f.evidence[:200]}\u201d\n", "meta")
+        if len(items) > self.MAX_LINES:
+            t.insert("end", f"\n\u2026 and {len(items) - self.MAX_LINES} more - type a mod's name above to see "
+                            "just its links.\n", "meta")
+        if not items:
+            t.insert("end", "Nothing here." if not query else "Nothing for that filter.", "meta")
+        t.configure(state="disabled")
+        t.yview_moveto(0)
 
     def _review(self) -> None:
         self.choice = "review"
         self.destroy()
-
 
 
 class ListCheckDialog(tk.Toplevel):
@@ -849,8 +962,8 @@ class ListCheckDialog(tk.Toplevel):
         from .. import listcheck
         super().__init__(master)
         self.title("Check list")
-        self.geometry("860x620")
-        self.transient(master)
+        remember_size(self, "listcheck", "860x620")
+        pass  # a normal window: it can be resized and maximized
         ttk.Label(self, text="Your list, checked", style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
         ttk.Label(self, text="Before downloading: what could go wrong once it's all installed.",
                   style="Muted.TLabel").pack(anchor="w", padx=12)
@@ -1052,8 +1165,8 @@ class CrashDialog(tk.Toplevel):
     def __init__(self, master, crash, path):
         super().__init__(master)
         self.title("Crash log")
-        self.geometry("860x600")
-        self.transient(master)
+        remember_size(self, "crash", "860x600")
+        pass  # a normal window: it can be resized and maximized
         ttk.Label(self, text=path.name, style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
         ttk.Label(self, text=f"{crash.kind} log" + (f" \u00b7 {crash.game}" if crash.game else ""),
                   style="Muted.TLabel").pack(anchor="w", padx=12)

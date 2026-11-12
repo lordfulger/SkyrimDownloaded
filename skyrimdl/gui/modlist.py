@@ -267,7 +267,7 @@ class ListMixin:
             else:
                 status = "listed" if (plan.entry.game, r.mod_id) in listed else "missing"
             rows.append({"name": r.name, "url": url, "notes": r.notes, "status": status,
-                         "needed_by": plan.title})
+                         "needed_by": plan.title, "optional": compat.optional_note(r.notes)})
         return rows
 
     def _listed_mods(self) -> set:

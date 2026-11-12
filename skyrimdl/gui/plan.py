@@ -406,7 +406,7 @@ class PlanMixin:
                     put(f"\u2022 {n}\n")
         rows = self.requirement_rows(plan) if mod else []
         if rows:
-            put("\nRequirements on Nexus\n", "h")
+            put("\nRequires (from Nexus)\n", "h")
             for r in rows:
                 put("\u2022 ")
                 if r["url"]:
@@ -416,6 +416,8 @@ class PlanMixin:
                 mark, tag = {"listed": ("in your list", "good"), "missing": ("not in your list", "warn"),
                              "dlc": ("DLC / Creation - make sure you have it", "meta"),
                              "outside": ("not on Nexus - get it yourself", "meta")}[r["status"]]
+                if r.get("optional") and r["status"] in ("listed", "missing"):
+                    mark, tag = mark + ", optional", "meta"
                 put(f"  ({mark})", tag)
                 if r["status"] == "missing":
                     put("  ")

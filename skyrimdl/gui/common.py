@@ -60,6 +60,42 @@ def file_status(opt, suggested: str | None = None) -> str:
     return " \u00b7 ".join(bits)
 
 
+#: Sizes of the app's windows, kept between runs (settings.window_sizes): {window: "WxH" or "zoomed"}.
+WINDOW_SIZES: dict = {}
+
+
+def remember_size(win, key: str, default: str) -> None:
+    """Open a window at the size it had last time (or maximized), and remember changes.
+    It can be resized and maximized like any window."""
+    win.resizable(True, True)
+    win.minsize(560, 380)
+    size = WINDOW_SIZES.get(key) or default
+    if size == "zoomed":
+        win.geometry(default)
+        win.after(50, lambda: _zoom(win))
+    else:
+        win.geometry(size)
+
+    def note(event=None):
+        if event is not None and event.widget is not win:
+            return
+        try:
+            WINDOW_SIZES[key] = "zoomed" if win.state() == "zoomed" else win.geometry().split("+")[0]
+        except tk.TclError:
+            pass
+    win.bind("<Configure>", note, add="+")
+
+
+def _zoom(win) -> None:
+    try:
+        win.state("zoomed")
+    except tk.TclError:
+        try:
+            win.attributes("-zoomed", True)
+        except tk.TclError:
+            pass
+
+
 def link_label(parent, text: str, url: str):
     """A clickable link that opens ``url`` in the browser."""
     label = ttk.Label(parent, text=text, style="Link.TLabel", cursor="hand2")

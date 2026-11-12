@@ -27,7 +27,7 @@ ORDER = {CONFLICT: 0, PATCH: 1, NEEDS: 2, DLC: 3, WORKS_WITH: 4, MENTIONS: 5}
 HEADINGS = {
     CONFLICT: "Possible conflicts",
     PATCH: "Patches for other mods in your list",
-    NEEDS: "Mods that rely on other mods in your list",
+    NEEDS: "Mods that require other mods in your list",
     DLC: "Game content needed (DLC / Creations) - make sure you have it",
     WORKS_WITH: "Said to work with",
     MENTIONS: "Also mentioned on mod pages",
@@ -47,21 +47,33 @@ _SUFFIX = re.compile(
 _CONFLICT = re.compile(
     r"(?<!no )(?<!any )(?:incompatib\w*|not compatible|isn'?t compatible|doesn'?t work with|"
     r"does not work with|won'?t work with|will not work with|do not use (?:this |it )?with|"
-    r"don'?t use (?:this |it )?with|conflicts? with)", re.I)
+    r"don'?t use (?:this |it )?with|conflicts? with)(?!out)", re.I)
 _REQUIRES = re.compile(r"requires?|required|requirements?|needs|dependenc\w*|depends on|you need|must have", re.I)
 _PATCHY = re.compile(r"patch|compatib\w*|integrat\w*|support\w*|add-?on|for users of|if you use", re.I)
 _TRAILING_VERSION = re.compile(r"\s+v?\d+(?:\.\d+)*[a-z]?\s*$", re.I)
 _WORKS = re.compile(r"compatible with|works (?:fine |well )?with|work together", re.I)
 
 
+_OPTIONAL = re.compile(r"\b(?:optional(?:ly)?|compatib\w*|patch\w*|only (?:if|needed|for|when|with)|"
+                       r"if you (?:use|want|have)|for (?:users of|those)|not required|recommended|"
+                       r"addon|add-on)\b", re.I)
+
+
+def optional_note(notes: str | None) -> bool:
+    """A requirement whose note says it's optional ("Optional Abandoned Prison compatible
+    file", "Compatibility patch", "only if you use X"): not something the mod can't do without."""
+    return bool(notes and _OPTIONAL.search(notes))
+
+
 class ModWarning(str):
     """A warning like "needs X": plain text, plus the mod's name and page for a link."""
 
-    def __new__(cls, before: str, name: str, url: str = "", after: str = "", other=None):
+    def __new__(cls, before: str, name: str, url: str = "", after: str = "", other=None, quote: str = ""):
         text = " ".join(t for t in (before, name) if t) + after
         self = super().__new__(cls, text)
         self.before, self.name, self.url, self.after = before, name, url, after
         self.other = other  # the mod (ModPlan) it's about, when it's in the list
+        self.quote = quote  # the words on the page it's based on
         return self
 
 
@@ -117,13 +129,15 @@ class Report:
         out: dict[int, list[ModWarning]] = {}
         for f in self.findings:
             if f.kind == CONFLICT:
-                out.setdefault(id(f.plan), []).append(ModWarning("may conflict with", f.other.title, _page(f.other), other=f.other))
+                out.setdefault(id(f.plan), []).append(ModWarning("may conflict with", f.other.title, _page(f.other), other=f.other,
+                                                                     quote=f.evidence))
                 out.setdefault(id(f.other), []).append(
-                    ModWarning("", f.plan.title, _page(f.plan), "'s page says it may conflict with this", other=f.plan))
+                    ModWarning("", f.plan.title, _page(f.plan), "'s page says it may conflict with this",
+                               other=f.plan, quote=f.evidence))
             elif f.kind == NEEDS:
-                out.setdefault(id(f.plan), []).append(ModWarning("needs", f.other.title, _page(f.other), " (in your list)", other=f.other))
+                out.setdefault(id(f.plan), []).append(ModWarning("requires", f.other.title, _page(f.other), " (in your list)", other=f.other))
             elif f.kind == DLC:
-                out.setdefault(id(f.plan), []).append(ModWarning("needs", f.evidence or "game content", ""))
+                out.setdefault(id(f.plan), []).append(ModWarning("requires", f.evidence or "game content", ""))
         return out
 
     def notes_for(self, plan) -> list[str]:
@@ -151,8 +165,11 @@ def aliases(name: str) -> list[tuple[str, bool]]:
             # short single words ("Ordinator" is fine, "Wet" is not)
             if not (len(v) >= 4 and re.search(r"[A-Z].*[A-Z]|\d", v)):
                 continue
-        if (v, False) not in out:
-            out.append((v, False))
+        # One word ("Still", "Apothecary") is only the mod when written like its name: "still"
+        # in a sentence isn't the music mod.
+        single = " " not in v
+        if (v, single) not in out:
+            out.append((v, single))
     # Acronym: "Unofficial Skyrim Special Edition Patch" -> USSEP
     words = re.findall(r"[A-Za-z][A-Za-z']*", base)
     caps = [w for w in words if w[0].isupper()]
@@ -179,6 +196,28 @@ def _mentions(text: str, pats: list[re.Pattern], link_ids: set[int], mod_id: int
         for m in re.finditer(r"/mods/" + str(mod_id) + r"(?!\d)", text):
             spots.append(m.start())
     return sorted(spots)
+
+
+_CLAUSE = re.compile(r"[;\u2022|]|:\s|\s[-\u2013]\s|,\s(?:but|while)\s|\bbut\b|\bwhile\b|\bhowever\b", re.I)
+# "conflicts with other mods that edit X": general advice, not about X
+_GENERAL = re.compile(r"\b(?:other|any|anything|everything|some|mods? that|which|that edit|that change)\b", re.I)
+_AFTER_CONFLICT = re.compile(r"^\S[^.;:]{0,60}?\b(?:is|are|isn'?t|aren'?t|will be)\s+(?:not compatible|incompatible)|"
+                             r"^\S[^.;:]{0,60}?(?<!no )(?<!any )(?<!without )(?<!zero )\bconflicts?\b", re.I)
+
+
+def _conflict_about(before: str, after: str) -> bool:
+    """The conflict words are about this mention: "incompatible with X", "X is not compatible"
+    - in the same part of the sentence, not "Conflicts with Y; works fine with X"."""
+    url = re.compile(r"\(?\s*https?://\S*|\S*/mods/\d+\)?")  # a link to the mod stands for its name
+    before, after = url.sub(" ", before), url.sub(" ", after)
+    clause = _CLAUSE.split(before)[-1]
+    m = None
+    for m in _CONFLICT.finditer(clause):
+        pass
+    if m is not None and len(clause) - m.end() <= 40 and not _GENERAL.search(clause[m.end():]):
+        return True
+    rest = _CLAUSE.split(after)[0]
+    return bool(_AFTER_CONFLICT.search(rest))
 
 
 def _context(text: str, at: int, width: int = 90) -> tuple[str, str]:
@@ -258,15 +297,19 @@ def check(plans, client=None, *, workers: int = 4) -> Report:
             for req in req_list:
                 if getattr(req, "dlc", False):
                     note = f" ({req.notes})" if req.notes else ""
-                    f = Finding(DLC, plan, plan, f"{plan.title} needs {req.name}{note}", evidence=req.name)
+                    f = Finding(DLC, plan, plan, f"{plan.title} requires {req.name}{note}", evidence=req.name)
                     f.file_id = hash(req.name) & 0xFFFF  # one finding per DLC
                     add(f)
                     continue
                 other = by_mod.get((plan.entry.game, req.mod_id)) if req.mod_id else None
                 if other:
                     note = f" ({req.notes})" if req.notes else ""
-                    add(Finding(NEEDS, plan, other, f"{plan.title} needs {other.title}{note}",
-                                evidence="listed as a requirement on Nexus"))
+                    if optional_note(req.notes):  # "Optional ... compatible file": not really required
+                        add(Finding(WORKS_WITH, plan, other, f"{plan.title} has optional files for {other.title}{note}",
+                                    evidence="listed on Nexus as optional"))
+                    else:
+                        add(Finding(NEEDS, plan, other, f"{plan.title} requires {other.title}{note}",
+                                    evidence="listed as a requirement on Nexus"))
 
     for plan in active:
         game = plan.entry.game
@@ -305,9 +348,12 @@ def check(plans, client=None, *, workers: int = 4) -> Report:
             continue
         page = bbcode_to_text(raw, keep_links=True)
         ids = nexus_mod_ids(raw, game)
+        own = {a.lower() for a, _ in aliases(plan.mod.name)}
         for other in could_mention(page, ids=ids):
             if other is plan:
                 continue
+            if own & {a.lower() for a, _ in aliases(other.mod.name)} and other.entry.mod_id not in ids:
+                continue  # "Apothecary" on Apothecary's page is about itself, not "Apothecary - Patches"
             spots = _mentions(page, pats[id(other)], ids, other.entry.mod_id)
             if not spots:
                 continue
@@ -315,7 +361,7 @@ def check(plans, client=None, *, workers: int = 4) -> Report:
             for s in spots:
                 before, after = _context(page, s)
                 window = before + after
-                if _CONFLICT.search(window):
+                if _conflict_about(before, after):
                     kind, at = CONFLICT, s
                     break
                 if _REQUIRES.search(before) and ORDER[NEEDS] < ORDER[kind]:
@@ -324,7 +370,7 @@ def check(plans, client=None, *, workers: int = 4) -> Report:
                     kind, at = WORKS_WITH, s
             text = {
                 CONFLICT: f"{plan.title}'s page may say it conflicts with {other.title}",
-                NEEDS: f"{plan.title}'s page says it needs {other.title}",
+                NEEDS: f"{plan.title}'s page says it requires {other.title}",
                 WORKS_WITH: f"{plan.title}'s page says it works with {other.title}",
                 MENTIONS: f"{plan.title}'s page mentions {other.title}",
             }[kind]

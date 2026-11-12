@@ -12,6 +12,7 @@ class PersistMixin:
         # Fill these in first: logging in below saves settings, which reads them.
         self.version_var.set(gameversion.preset_label(s.game_version))
         self.store_var.set(s.game_store if s.game_store in gameversion.STORES else "Steam")
+        WINDOW_SIZES.update({k: v for k, v in (s.window_sizes or {}).items() if isinstance(v, str)})
         self.texture_var.set(s.texture_size if s.texture_size in TEXTURE_SIZES else NO_TEXTURE_PREF)
         self._last_target = self._target_key(self._target_game())
         self.key_var.set(s.get_api_key())
@@ -50,6 +51,7 @@ class PersistMixin:
                       "time": time.time()}
         s.game_version = gameversion.version_text(self._target_game().version)
         s.game_store = self.store_var.get()
+        s.window_sizes = dict(WINDOW_SIZES)
         s.texture_size = self._target_game().texture
         s.last_list = str(self.list_path) if self.list_path else ""
         try:

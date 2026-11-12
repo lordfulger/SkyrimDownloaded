@@ -59,10 +59,10 @@ class CheckTests(unittest.TestCase):
     def test_warnings_carry_links(self):
         report = compat.check(self.plans, self.client)
         pt = self.by_name["Pretty Textures"]
-        needs = [w for w in report.warnings()[id(pt)] if w.before == "needs" and w.name == "SkyUI"]
+        needs = [w for w in report.warnings()[id(pt)] if w.before == "requires" and w.name == "SkyUI"]
         self.assertEqual(len(needs), 1)
         self.assertEqual(needs[0].url, "https://www.nexusmods.com/skyrimspecialedition/mods/12604")
-        self.assertEqual(needs[0], "needs SkyUI (in your list)")
+        self.assertEqual(needs[0], "requires SkyUI (in your list)")
         dlc = [w for w in report.warnings()[id(pt)] if w.name == "Fishing"]
         self.assertEqual(dlc[0].url, "")
 

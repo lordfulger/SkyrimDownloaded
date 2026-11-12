@@ -69,8 +69,8 @@ class DlcTests(unittest.TestCase):
             report = compat.check(plans, client)
             found = report.by_kind(compat.DLC)
             self.assertEqual(len(found), 1)
-            self.assertIn("needs Fishing", found[0].text)
-            self.assertIn("needs Fishing", report.warnings()[id(plans[0])])
+            self.assertIn("requires Fishing", found[0].text)
+            self.assertIn("requires Fishing", report.warnings()[id(plans[0])])
 
     def test_still_works_if_nexus_rejects_the_dlc_part(self):
         with FakeNexus() as fake:

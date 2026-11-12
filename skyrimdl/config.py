@@ -45,6 +45,7 @@ class Settings:
     only_real_choices: bool = True  # ask only when there are several different main files
     prefer_words: str = ""          # comma-separated: "ESL, Desaturated"
     avoid_words: str = ""           # comma-separated: "Loose, Beta"
+    window_sizes: dict = field(default_factory=dict)  # pop-up windows' sizes
     choice_page: bool = True        # the mod's Nexus page next to Choose options
     discover_open: bool = False     # the Discover panel on the side
     auto_add_patches: bool = False  # add suggested patches between your mods by themselves

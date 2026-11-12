@@ -485,9 +485,12 @@ class PlanMixin:
         if plan:
             webbrowser.open(plan.entry.page_url + "?tab=files")
 
-    def _set_choose_start(self, plan) -> None:
-        self.choose_start = plan.entry.key
-        self.status_var.set(f"Choose options now starts from {plan.title}.")
+    def _set_choose_start(self, plan, quiet: bool = False) -> None:
+        """Where Choose options opens: set by Start from, then moved along by Next. None:
+        back to the first mod still waiting."""
+        self.choose_start = plan.entry.key if plan is not None else ""
+        if not quiet and plan is not None:
+            self.status_var.set(f"Choose options starts from {plan.title} and continues from where you get to.")
         self.save_session()
 
     def auto_pick_settings(self) -> None:

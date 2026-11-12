@@ -157,7 +157,7 @@ class ChoiceDialog(tk.Toplevel):
         self._render_page(plan)
         skipped = f"   \u2022   {len(self.later)} skipped for later" if self.later else ""
         starts = next((i for i, p in enumerate(self.plans) if p.entry.key == self.start_key), None)
-        mark = f"   \u2022   starts at mod {starts + 1}" if starts is not None else ""
+        mark = f"   \u2022   continues at mod {starts + 1}" if starts is not None else ""
         self.count.set(f"Mod {self.index + 1} of {len(self.plans)}{skipped}{mark}")
         self.vars = []
         self._photos = []
@@ -541,9 +541,17 @@ class ChoiceDialog(tk.Toplevel):
             self.commit()
         new = self.index + step
         if new >= len(self.plans):
+            if self.start_from and self.start_key:  # got to the end: next time, the first mod still waiting
+                self.start_key = ""
+                self.start_from(None)
             self.finish()
             return
         self.index = max(0, new)
+        if step > 0 and self.start_from and self.start_key:
+            # Moving on with Next: Choose options continues from here next time (Back and Go
+            # are only a look).
+            self.start_key = self.plan.entry.key
+            self.start_from(self.plan, quiet=True)
         self.show()
 
     # -- faster choosing ---------------------------------------------------------
@@ -622,8 +630,8 @@ class ChoiceDialog(tk.Toplevel):
         self.start_key = self.plan.entry.key
         self.start_from(self.plan)
         self.show()
-        self.sub.set(f"Choose options will start from here (mod {self.index + 1}: {self.plan.title}) "
-                     "next time.")
+        self.sub.set(f"Starting from here (mod {self.index + 1}: {self.plan.title}). Choose options "
+                     "continues from wherever Next takes you.")
 
     def go_to(self, where: str) -> bool:
         """Jump to mod number N (as counted in this window), or the first mod whose name has

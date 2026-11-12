@@ -485,6 +485,11 @@ class PlanMixin:
         if plan:
             webbrowser.open(plan.entry.page_url + "?tab=files")
 
+    def _set_choose_start(self, plan) -> None:
+        self.choose_start = plan.entry.key
+        self.status_var.set(f"Choose options now starts from {plan.title}.")
+        self.save_session()
+
     def auto_pick_settings(self) -> None:
         from .dialogs import AutoPickDialog
         dlg = AutoPickDialog(self.root, self.settings)
@@ -537,6 +542,10 @@ class PlanMixin:
             plans = [p for p in with_options if p not in later] + later
             waiting = [i for i, p in enumerate(plans) if p.needs_choice]
             start = waiting[0] if waiting else 0
+            key = getattr(self, "choose_start", "")  # "Start from" in Choose options
+            marked = [i for i, p in enumerate(plans) if p.entry.key == key]
+            if marked:
+                start = marked[0]
         if not plans:
             if review:
                 return
@@ -549,7 +558,8 @@ class PlanMixin:
                            title="Review linked mods" if review else "Choose options", start=start,
                            requirement_rows=self.requirement_rows,
                            add_requirement=self.add_requirement_to_list,
-                           texture=self._target_game().texture, settings=self.settings)
+                           texture=self._target_game().texture, settings=self.settings,
+                           start_from=self._set_choose_start, start_key=getattr(self, "choose_start", ""))
         dlg.wait_window()
         if report:  # suggested patches unticked in the window stay unticked
             declined = self.__dict__.setdefault("patch_declined", set())

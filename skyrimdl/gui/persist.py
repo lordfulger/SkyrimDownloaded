@@ -86,6 +86,7 @@ class PersistMixin:
             requirements=reqs, declined=self.declined,
             ui={"show_other": self.other_var.get(), "show_old": self.old_var.get(),
                 "patch_declined": sorted(self.__dict__.get("patch_declined", set())),
+                "choose_start": getattr(self, "choose_start", ""),
                 "geometry": self.root.geometry(), "maximized": self.is_maximized(), "sash": sash})
         if wait:
             self._write_session(data)
@@ -146,6 +147,7 @@ class PersistMixin:
             self._req_cache = {k: v for k, v in restored.requirements.items()}
             self.declined = restored.declined
             self.patch_declined = set(restored.ui.get("patch_declined") or [])
+            self.choose_start = str(restored.ui.get("choose_start") or "")
             ui = restored.ui
             self.other_var.set(bool(ui.get("show_other")))
             self.old_var.set(bool(ui.get("show_old")))

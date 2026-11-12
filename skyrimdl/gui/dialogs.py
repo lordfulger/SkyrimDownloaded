@@ -20,7 +20,8 @@ class ChoiceDialog(tk.Toplevel):
     def __init__(self, master, plans: list[ModPlan], include_old: bool, include_other: bool = False, *,
                  suggestions: dict | None = None, warnings: dict | None = None,
                  title: str = "Choose options", start: int = 0,
-                 requirement_rows=None, add_requirement=None, texture: str = "", settings=None):
+                 requirement_rows=None, add_requirement=None, texture: str = "", settings=None,
+                 start_from=None, start_key: str = ""):
         super().__init__(master)
         self.texture = texture
         self.plans = list(plans)
@@ -38,6 +39,8 @@ class ChoiceDialog(tk.Toplevel):
         self.vars: list[tuple[tk.BooleanVar, int]] = []
         self.title(title)
         self.settings = settings
+        self.start_from = start_from    # remembers where Choose options starts next time
+        self.start_key = start_key
         self.show_page = bool(getattr(settings, "choice_page", True))
         remember_size(self, "choice", "1280x820" if self.show_page else "800x600")
         self.minsize(560, 380)
@@ -99,7 +102,6 @@ class ChoiceDialog(tk.Toplevel):
         ttk.Button(btns, text="Open mod page", command=self.open_page).pack(side="left", padx=6)
         self.page_btn = ttk.Button(btns, text=self._page_label(), command=self.toggle_page)
         self.page_btn.pack(side="left", padx=(0, 6))
-        ttk.Button(btns, text="Pictures", command=self.open_pictures).pack(side="left")
         self.count = tk.StringVar()
         ttk.Label(btns, textvariable=self.count).pack(side="left", padx=8)
         # Go back (or ahead) to a mod by its number or name
@@ -109,6 +111,8 @@ class ChoiceDialog(tk.Toplevel):
         goto.pack(side="left")
         goto.bind("<Return>", lambda e: self.go_to(self.goto_var.get()) or "break")
         ttk.Button(btns, text="Go", width=4, command=lambda: self.go_to(self.goto_var.get())).pack(side="left", padx=(2, 0))
+        if self.start_from:
+            ttk.Button(btns, text="Start from", command=self.start_from_here).pack(side="left", padx=(4, 0))
         acts = ttk.Frame(self)  # deciding
         acts.pack(fill="x", padx=12, pady=(0, 12))
         ttk.Button(acts, text="Done", command=self.finish).pack(side="right")
@@ -152,7 +156,9 @@ class ChoiceDialog(tk.Toplevel):
         self._show_warnings(warns)
         self._render_page(plan)
         skipped = f"   \u2022   {len(self.later)} skipped for later" if self.later else ""
-        self.count.set(f"Mod {self.index + 1} of {len(self.plans)}{skipped}")
+        starts = next((i for i, p in enumerate(self.plans) if p.entry.key == self.start_key), None)
+        mark = f"   \u2022   starts at mod {starts + 1}" if starts is not None else ""
+        self.count.set(f"Mod {self.index + 1} of {len(self.plans)}{skipped}{mark}")
         self.vars = []
         self._photos = []
         self._file_rows = []
@@ -607,22 +613,34 @@ class ChoiceDialog(tk.Toplevel):
         self.grab_release()
         self.destroy()
 
-    def go_to(self, where: str) -> None:
+    def start_from_here(self) -> None:
+        """Go to the mod typed in the box (or stay on this one) and make it where Choose
+        options starts from next time."""
+        where = self.goto_var.get().strip()
+        if where and not self.go_to(where):
+            return
+        self.start_key = self.plan.entry.key
+        self.start_from(self.plan)
+        self.show()
+        self.sub.set(f"Choose options will start from here (mod {self.index + 1}: {self.plan.title}) "
+                     "next time.")
+
+    def go_to(self, where: str) -> bool:
         """Jump to mod number N (as counted in this window), or the first mod whose name has
         the text you typed. The mod on screen keeps any change you made to it."""
         where = (where or "").strip()
         if not where:
-            return
+            return False
         if where.isdigit():
             new = int(where) - 1
             if not 0 <= new < len(self.plans):
                 self.sub.set(f"There's no mod {where} - pick 1 to {len(self.plans)}.")
-                return
+                return False
         else:
             hits = [i for i, p in enumerate(self.plans) if where.lower() in p.title.lower()]
             if not hits:
                 self.sub.set(f"No mod here has \u201c{where}\u201d in its name.")
-                return
+                return False
             after = [i for i in hits if i > self.index]  # pressing Go again finds the next one
             new = after[0] if after else hits[0]
         if set(self._ticked()) != set(self.plan.selected):
@@ -630,6 +648,7 @@ class ChoiceDialog(tk.Toplevel):
         self.index = new
         self.goto_var.set("")
         self.show()
+        return True
 
     def skip_for_now(self) -> None:
         """Put this mod off: it comes back after all the others."""
